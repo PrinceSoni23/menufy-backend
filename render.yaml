@@ -3,8 +3,8 @@ services:
     name: ar-menu-backend
     runtime: node
     plan: free
-    buildCommand: cd backend && npm install && npm run build
-    startCommand: node backend/dist/server.js
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
     envVars:
       - key: NODE_ENV
         value: production
