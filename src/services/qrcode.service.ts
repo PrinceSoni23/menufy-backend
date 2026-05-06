@@ -12,6 +12,7 @@ export class QRCodeService {
     restaurantId: string,
     ownerId: string,
     publicUrl: string,
+    appUrl?: string,
   ): Promise<any> {
     // Verify ownership
     const restaurant = await Restaurant.findById(restaurantId);
@@ -26,7 +27,9 @@ export class QRCodeService {
     let qrCode = await QRCodeModel.findOne({ restaurantId });
 
     const code = generateShortCode();
-    const fullPublicUrl = `${process.env.APP_URL || "http://localhost:3000"}/menu/${publicUrl}`;
+    // Use appUrl from frontend, fall back to environment variable, then to localhost
+    const baseUrl = appUrl || process.env.APP_URL || "http://localhost:3000";
+    const fullPublicUrl = `${baseUrl}/menu/${publicUrl}`;
 
     try {
       // Generate QR code data URL
@@ -167,6 +170,7 @@ export class QRCodeService {
   static async regenerateQRCode(
     restaurantId: string,
     ownerId: string,
+    appUrl?: string,
   ): Promise<any> {
     const restaurant = await Restaurant.findById(restaurantId);
     if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
@@ -179,7 +183,9 @@ export class QRCodeService {
     }
 
     const code = generateShortCode();
-    const fullPublicUrl = `${process.env.APP_URL || "http://localhost:3000"}/menu/${qrCode.publicUrl}`;
+    // Use appUrl from frontend, fall back to environment variable, then to localhost
+    const baseUrl = appUrl || process.env.APP_URL || "http://localhost:3000";
+    const fullPublicUrl = `${baseUrl}/menu/${qrCode.publicUrl}`;
 
     try {
       const qrDataUrl = await QRCode.toDataURL(fullPublicUrl, {

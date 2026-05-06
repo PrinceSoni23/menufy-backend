@@ -13,7 +13,7 @@ router.post("/generate", verifyToken, async (req, res, next) => {
   try {
     if (!req.user) throw new AppError(401, "Authentication required");
 
-    const { restaurantId, publicUrl } = req.body;
+    const { restaurantId, publicUrl, appUrl } = req.body;
     if (!restaurantId || !publicUrl) {
       throw new AppError(400, "restaurantId and publicUrl are required");
     }
@@ -22,6 +22,7 @@ router.post("/generate", verifyToken, async (req, res, next) => {
       restaurantId,
       req.user.userId,
       publicUrl,
+      appUrl,
     );
 
     res.status(201).json({
@@ -134,10 +135,12 @@ router.post(
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
+      const { appUrl } = req.body;
 
       const qrCode = await QRCodeService.regenerateQRCode(
         restaurantId,
         req.user.userId,
+        appUrl,
       );
 
       res.status(200).json({
