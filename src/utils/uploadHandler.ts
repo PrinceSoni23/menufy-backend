@@ -87,7 +87,13 @@ const isLocalhostBaseUrl = (baseUrl: string): boolean =>
   /^(https?:\/\/)?(localhost|127\.0\.0\.1|::1)(:\d+)?(\/|$)/i.test(baseUrl);
 
 export function resolvePublicBaseUrl(req?: Request): string {
-  const configuredBaseUrl = process.env.API_URL?.trim().replace(/\/$/, "");
+  const configuredBaseUrl = (
+    process.env.API_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    ""
+  )
+    .trim()
+    .replace(/\/$/, "");
 
   if (configuredBaseUrl && !isLocalhostBaseUrl(configuredBaseUrl)) {
     return configuredBaseUrl;

@@ -1,7 +1,10 @@
 // Load environment variables
 import path from "path";
 import dotenv from "dotenv";
-dotenv.config({ path: path.join(__dirname, "..", ".env.local") });
+
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: path.join(__dirname, "..", ".env.local") });
+}
 
 import express, { Express, Request, Response } from "express";
 import cors from "cors";

@@ -38,10 +38,11 @@ export class ConversionService {
 
   private static getLocalImagePath(imagePath: string): string {
     if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-      const apiUrl = (process.env.API_URL || "http://localhost:5000").replace(
-        /\/$/,
-        "",
-      );
+      const apiUrl = (
+        process.env.API_URL ||
+        process.env.RENDER_EXTERNAL_URL ||
+        "http://localhost:5000"
+      ).replace(/\/$/, "");
       const uploadsPrefix = `${apiUrl}/uploads/images/`;
 
       if (!imagePath.startsWith(uploadsPrefix)) {

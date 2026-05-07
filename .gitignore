@@ -33,6 +33,9 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# Generated uploads
+uploads/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -43,6 +46,7 @@ tmp/
 temp/
 *.pid
 *.pid.lock
+*.tsbuildinfo
 
 # Local development
 .next/
