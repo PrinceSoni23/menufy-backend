@@ -1,36 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import { ConversionService } from "../services/conversion.service";
 import { MenuService } from "../services/menu.service";
-import { uploadImage, deleteImage } from "../utils/uploadHandler";
+import {
+  uploadImage,
+  deleteImage,
+  resolvePublicBaseUrl,
+} from "../utils/uploadHandler";
 import { AppError } from "../middleware/errorHandler";
 import { MenuItem, Restaurant } from "../models";
 import logger from "../utils/logger";
 import { validateObjectId } from "../utils/validation";
-
-const getPublicBaseUrl = (req: Request): string => {
-  const configuredBaseUrl = process.env.API_URL?.trim().replace(/\/$/, "");
-  if (configuredBaseUrl) {
-    return configuredBaseUrl;
-  }
-
-  const forwardedProto = (
-    req.headers["x-forwarded-proto"] as string | undefined
-  )
-    ?.split(",")[0]
-    ?.trim();
-  const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)
-    ?.split(",")[0]
-    ?.trim();
-
-  const protocol = forwardedProto || req.protocol || "http";
-  const host = forwardedHost || req.get("host");
-
-  if (!host) {
-    return "http://localhost:5000";
-  }
-
-  return `${protocol}://${host}`.replace(/\/$/, "");
-};
 
 export class UploadController {
   /**
@@ -232,7 +211,7 @@ export class UploadController {
 
       // Upload 3D model
       const uploadedFile = uploadImage(req.file);
-      const model3DUrl = `${getPublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
+      const model3DUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
       logger.info(
         `[3D UPLOAD] File processed - filename: ${uploadedFile.filename}, URL: ${model3DUrl}`,

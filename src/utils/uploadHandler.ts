@@ -83,6 +83,39 @@ export const upload3D = multer({
   },
 });
 
+const isLocalhostBaseUrl = (baseUrl: string): boolean =>
+  /^(https?:\/\/)?(localhost|127\.0\.0\.1|::1)(:\d+)?(\/|$)/i.test(baseUrl);
+
+export function resolvePublicBaseUrl(req?: Request): string {
+  const configuredBaseUrl = process.env.API_URL?.trim().replace(/\/$/, "");
+
+  if (configuredBaseUrl && !isLocalhostBaseUrl(configuredBaseUrl)) {
+    return configuredBaseUrl;
+  }
+
+  if (req) {
+    const forwardedProto = (
+      req.headers["x-forwarded-proto"] as string | undefined
+    )
+      ?.split(",")[0]
+      ?.trim();
+    const forwardedHost = (
+      req.headers["x-forwarded-host"] as string | undefined
+    )
+      ?.split(",")[0]
+      ?.trim();
+
+    const protocol = forwardedProto || req.protocol || "http";
+    const host = forwardedHost || req.get("host");
+
+    if (host) {
+      return `${protocol}://${host}`.replace(/\/$/, "");
+    }
+  }
+
+  return configuredBaseUrl || "http://localhost:5000";
+}
+
 /**
  * Upload image file
  */
@@ -128,7 +161,7 @@ export function deleteImage(filename: string): boolean {
  * Get image URL
  */
 export function getImageUrl(filename: string): string {
-  const baseUrl = process.env.API_URL || "http://localhost:5000";
+  const baseUrl = resolvePublicBaseUrl();
   return `${baseUrl}/uploads/images/${filename}`;
 }
 
