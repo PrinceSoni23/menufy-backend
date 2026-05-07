@@ -1,5 +1,6 @@
 // Load environment variables
 import path from "path";
+import fs from "fs";
 import dotenv from "dotenv";
 
 if (process.env.NODE_ENV !== "production") {
@@ -72,6 +73,12 @@ app.use(requestLogger);
 // ==================== STATIC FILES ====================
 // Serve uploaded files with caching for 3D models
 const uploadsDir = path.join(__dirname, "../uploads");
+
+// Ensure uploads directory exists
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  logger.info(`Created uploads directory: ${uploadsDir}`);
+}
 
 // CORS preflight
 app.use("/uploads", (req, res, next) => {
@@ -186,7 +193,7 @@ async function startServer() {
     // DISABLED: 3D conversion feature removed - owners now upload 3D models directly
     // startConversionScheduler();
 
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
       logger.info(`✓ Server running on port ${PORT}`);
       logger.info(`✓ Environment: ${process.env.NODE_ENV}`);
       logger.info(`✓ API URL: ${process.env.API_URL}`);

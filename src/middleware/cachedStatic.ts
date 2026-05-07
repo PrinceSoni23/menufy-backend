@@ -14,6 +14,12 @@ export const cachedStaticMiddleware = (
   return (req: Request, res: Response, next: NextFunction) => {
     // Get the requested file path
     const requestedPath = req.path.replace(/^\//, "");
+
+    // Skip if requesting root or directory listing
+    if (!requestedPath || requestedPath.endsWith("/")) {
+      return next();
+    }
+
     const filePath = path.join(uploadsDir, requestedPath);
 
     // Security: prevent path traversal
@@ -34,8 +40,8 @@ export const cachedStaticMiddleware = (
     const fileData = fileCache.getFile(filePath);
 
     if (!fileData) {
-      // File not found
-      return res.status(404).json({ message: "File not found" });
+      // File not found - pass to express.static or 404
+      return next();
     }
 
     // Get file stats for headers
@@ -64,8 +70,8 @@ export const cachedStaticMiddleware = (
         return res.status(304).end();
       }
 
-      // Send file
-      res.send(fileData);
+      // Send binary file data
+      res.end(fileData);
     } catch (error) {
       console.error(`[CachedStatic] Error serving ${filePath}:`, error);
       res.status(500).json({ message: "Error reading file" });
