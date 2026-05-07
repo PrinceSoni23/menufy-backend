@@ -178,7 +178,7 @@ app.use("*", (req: Request, res: Response) => {
 app.use(errorHandler);
 
 // ==================== SERVER START ====================
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 
 async function startServer() {
   try {
