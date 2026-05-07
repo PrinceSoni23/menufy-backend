@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import multer, { FileFilterCallback } from "multer";
 import { Request } from "express";
 import logger from "./logger";
+import { fileCache } from "./fileCache";
 
 // Create uploads directory if it doesn't exist
 const uploadDir = path.join(__dirname, "../../uploads/images");
@@ -152,6 +153,8 @@ export function deleteImage(filename: string): boolean {
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+      // Invalidate cache for this file
+      fileCache.invalidate(filePath);
       logger.info(`Image deleted: ${filename}`);
       return true;
     }

@@ -16,6 +16,7 @@ import connectDB from "./config/database";
 
 // Utils
 import logger from "./utils/logger";
+import { fileCache } from "./utils/fileCache";
 
 // Jobs
 import { startConversionScheduler } from "./jobs/conversionScheduler";
@@ -23,6 +24,7 @@ import { startConversionScheduler } from "./jobs/conversionScheduler";
 // Middleware
 import errorHandler from "./middleware/errorHandler";
 import requestLogger from "./middleware/requestLogger";
+import { cachedStaticMiddleware } from "./middleware/cachedStatic";
 
 // Routes
 import authRoutes from "./routes/auth.routes";
@@ -68,7 +70,10 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(requestLogger);
 
 // ==================== STATIC FILES ====================
-// Serve uploaded images with explicit CORS headers
+// Serve uploaded files with caching for 3D models
+const uploadsDir = path.join(__dirname, "../uploads");
+
+// CORS preflight
 app.use("/uploads", (req, res, next) => {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -80,13 +85,32 @@ app.use("/uploads", (req, res, next) => {
     next();
   }
 });
+
+// Cached middleware for 3D models (.glb files)
+app.use("/uploads", cachedStaticMiddleware(uploadsDir, [".glb", ".gltf"]));
+
+// Fallback to express.static for non-cached files
 app.use(
   "/uploads",
-  express.static(path.join(__dirname, "../uploads"), {
-    setHeaders: res => {
+  express.static(uploadsDir, {
+    setHeaders: (res, path) => {
       res.set("Access-Control-Allow-Origin", "*");
       res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
       res.set("Access-Control-Allow-Headers", "*");
+
+      // Add cache headers based on file type
+      if (path.endsWith(".glb")) {
+        res.set("Cache-Control", "public, max-age=2592000, immutable");
+      } else if (
+        path.endsWith(".jpg") ||
+        path.endsWith(".jpeg") ||
+        path.endsWith(".png") ||
+        path.endsWith(".webp")
+      ) {
+        res.set("Cache-Control", "public, max-age=604800");
+      } else {
+        res.set("Cache-Control", "public, max-age=86400");
+      }
     },
   }),
 );
@@ -97,6 +121,16 @@ app.get("/health", (req: Request, res: Response) => {
     status: "OK",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
+  });
+});
+
+// ==================== CACHE STATS ====================
+app.get("/cache/stats", (req: Request, res: Response) => {
+  const stats = fileCache.getStats();
+  res.json({
+    status: "OK",
+    cache: stats,
+    timestamp: new Date().toISOString(),
   });
 });
 
