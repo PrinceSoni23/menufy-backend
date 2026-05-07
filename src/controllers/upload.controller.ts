@@ -92,7 +92,7 @@ export class UploadController {
 
       // Upload image
       const uploadedFile = uploadImage(req.file);
-      const imageUrl = `${getPublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
+      const imageUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
       logger.info(
         `Image uploaded for menu item: ${menuItemId} - ${uploadedFile.filename}`,
