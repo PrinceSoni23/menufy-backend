@@ -1,11 +1,36 @@
 import { Request, Response, NextFunction } from "express";
 import { ConversionService } from "../services/conversion.service";
 import { MenuService } from "../services/menu.service";
-import { uploadImage, getImageUrl, deleteImage } from "../utils/uploadHandler";
+import { uploadImage, deleteImage } from "../utils/uploadHandler";
 import { AppError } from "../middleware/errorHandler";
 import { MenuItem, Restaurant } from "../models";
 import logger from "../utils/logger";
 import { validateObjectId } from "../utils/validation";
+
+const getPublicBaseUrl = (req: Request): string => {
+  const configuredBaseUrl = process.env.API_URL?.trim().replace(/\/$/, "");
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  const forwardedProto = (
+    req.headers["x-forwarded-proto"] as string | undefined
+  )
+    ?.split(",")[0]
+    ?.trim();
+  const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+
+  const protocol = forwardedProto || req.protocol || "http";
+  const host = forwardedHost || req.get("host");
+
+  if (!host) {
+    return "http://localhost:5000";
+  }
+
+  return `${protocol}://${host}`.replace(/\/$/, "");
+};
 
 export class UploadController {
   /**
@@ -88,7 +113,7 @@ export class UploadController {
 
       // Upload image
       const uploadedFile = uploadImage(req.file);
-      const imageUrl = getImageUrl(uploadedFile.filename);
+      const imageUrl = `${getPublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
       logger.info(
         `Image uploaded for menu item: ${menuItemId} - ${uploadedFile.filename}`,
@@ -121,10 +146,30 @@ export class UploadController {
     next: NextFunction,
   ) {
     try {
-      if (!req.user) throw new AppError(401, "Authentication required");
-      if (!req.file) throw new AppError(400, "No 3D model file provided");
-
       const { menuItemId, restaurantId } = req.params;
+
+      // CRITICAL DEBUG LOGGING
+      logger.info(
+        `[3D UPLOAD] Request received - restaurantId: ${restaurantId}, menuItemId: ${menuItemId}`,
+      );
+      logger.info(
+        `[3D UPLOAD] req.user: ${req.user ? "EXISTS" : "MISSING"}, req.file: ${req.file ? `EXISTS (${req.file.originalname})` : "MISSING"}`,
+      );
+      logger.info(
+        `[3D UPLOAD] Headers: ${JSON.stringify({
+          contentType: req.get("content-type"),
+          authorization: req.get("authorization") ? "SET" : "MISSING",
+        })}`,
+      );
+
+      if (!req.user) {
+        logger.warn("[3D UPLOAD] Authentication check failed");
+        throw new AppError(401, "Authentication required");
+      }
+      if (!req.file) {
+        logger.warn("[3D UPLOAD] File missing in request");
+        throw new AppError(400, "No 3D model file provided");
+      }
 
       // Validate ObjectId formats
       validateObjectId(restaurantId);
@@ -187,19 +232,29 @@ export class UploadController {
 
       // Upload 3D model
       const uploadedFile = uploadImage(req.file);
-      const model3DUrl = getImageUrl(uploadedFile.filename);
+      const model3DUrl = `${getPublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
       logger.info(
-        `3D model uploaded for menu item: ${menuItemId} - ${uploadedFile.filename}`,
+        `[3D UPLOAD] File processed - filename: ${uploadedFile.filename}, URL: ${model3DUrl}`,
       );
 
       // Update menu item with 3D model
+      logger.info(
+        `[3D UPLOAD] Updating MenuItem ${menuItemId} with model3DUrl: ${model3DUrl}`,
+      );
       const updatedMenuItem = await MenuItem.findByIdAndUpdate(
         menuItemId,
         {
           model3DUrl,
         },
         { new: true },
+      );
+
+      logger.info(
+        `[3D UPLOAD] MenuItem update result:`,
+        updatedMenuItem
+          ? `SUCCESS - ${updatedMenuItem._id}`
+          : `FAILED - returned null`,
       );
 
       res.status(201).json({

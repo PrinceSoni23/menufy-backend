@@ -1,4 +1,4 @@
-import { Restaurant, QRCode } from "../models";
+import { Restaurant } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { IRestaurant } from "../types";
@@ -95,17 +95,16 @@ export class RestaurantService {
    * Get restaurant by QR code
    */
   static async getRestaurantByQRCode(qrcode: string): Promise<any> {
-    // Find QR code by code first
-    const qrCodeDoc = await QRCode.findOne({ code: qrcode });
+    const restaurant = await Restaurant.findOne({
+      qrCodeId: { $exists: true, $ne: null },
+    }).populate("qrCodeId");
 
-    if (!qrCodeDoc) {
+    if (!restaurant) {
       throw new AppError(404, "Restaurant not found");
     }
 
-    // Get the restaurant using the restaurantId from QR code
-    const restaurant = await Restaurant.findById(qrCodeDoc.restaurantId);
-
-    if (!restaurant) {
+    const qrCodeModel = restaurant.qrCodeId as any;
+    if (qrCodeModel && qrCodeModel.code !== qrcode) {
       throw new AppError(404, "Restaurant not found");
     }
 
