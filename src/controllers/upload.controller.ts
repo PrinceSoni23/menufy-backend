@@ -211,20 +211,22 @@ export class UploadController {
 
       // Upload 3D model
       const uploadedFile = uploadImage(req.file);
-      const model3DUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
+      // Store only the filename in the DB (frontend will resolve to a public URL)
+      const storedFilename = uploadedFile.filename;
+      const publicModelUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
       logger.info(
-        `[3D UPLOAD] File processed - filename: ${uploadedFile.filename}, URL: ${model3DUrl}`,
+        `[3D UPLOAD] File processed - filename: ${uploadedFile.filename}, URL: ${publicModelUrl}`,
       );
 
-      // Update menu item with 3D model
+      // Update menu item with 3D model filename (do not persist environment-specific host)
       logger.info(
-        `[3D UPLOAD] Updating MenuItem ${menuItemId} with model3DUrl: ${model3DUrl}`,
+        `[3D UPLOAD] Updating MenuItem ${menuItemId} with model3D filename: ${storedFilename}`,
       );
       const updatedMenuItem = await MenuItem.findByIdAndUpdate(
         menuItemId,
         {
-          model3DUrl,
+          model3DUrl: storedFilename,
         },
         { new: true },
       );
@@ -240,7 +242,8 @@ export class UploadController {
         success: true,
         message: "3D model uploaded successfully",
         data: {
-          model3DUrl,
+          model3DUrl: storedFilename,
+          model3DUrlPublic: publicModelUrl,
           menuItem: updatedMenuItem,
         },
       });
