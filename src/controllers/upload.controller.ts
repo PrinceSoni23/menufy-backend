@@ -92,22 +92,25 @@ export class UploadController {
 
       // Upload image
       const uploadedFile = uploadImage(req.file);
-      const imageUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
+      // Store only the filename in the DB (frontend will resolve to a public URL)
+      const storedFilename = uploadedFile.filename;
+      const publicImageUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
       logger.info(
         `Image uploaded for menu item: ${menuItemId} - ${uploadedFile.filename}`,
       );
 
-      // Update menu item with 2D image
+      // Update menu item with 2D image filename (do not persist environment-specific host)
       await MenuItem.findByIdAndUpdate(menuItemId, {
-        imageUrl2D: imageUrl,
+        imageUrl2D: storedFilename,
       });
 
       res.status(201).json({
         success: true,
         message: "Image uploaded successfully",
         data: {
-          imageUrl,
+          imageUrl: storedFilename,
+          imageUrlPublic: publicImageUrl,
         },
       });
     } catch (error) {

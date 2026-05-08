@@ -3,6 +3,7 @@ import { MenuService } from "../services/menu.service";
 import { AppError } from "../middleware/errorHandler";
 import { validateObjectId } from "../utils/validation";
 import { MenuItem, Restaurant } from "../models";
+import { resolvePublicBaseUrl } from "../utils/uploadHandler";
 import Joi from "joi";
 
 const createMenuItemSchema = Joi.object({
@@ -55,6 +56,24 @@ const updateMenuItemSchema = Joi.object({
 });
 
 export class MenuController {
+  private static toPublicMediaUrl(req: Request, value?: string): string | undefined {
+    if (!value) return value;
+    if (/^https?:\/\//i.test(value)) return value;
+
+    const baseUrl = resolvePublicBaseUrl(req).replace(/\/$/, "");
+    const normalized = value.startsWith("/") ? value : `/uploads/images/${value}`;
+    return `${baseUrl}${normalized}`;
+  }
+
+  private static mapMenuItemMediaUrls(req: Request, menuItem: any): any {
+    if (!menuItem) return menuItem;
+    return {
+      ...menuItem,
+      imageUrl2D: this.toPublicMediaUrl(req, menuItem.imageUrl2D),
+      model3DUrl: this.toPublicMediaUrl(req, menuItem.model3DUrl),
+    };
+  }
+
   /**
    * POST /api/menu
    * Create a new menu item
@@ -103,11 +122,15 @@ export class MenuController {
       validateObjectId(id);
 
       const menuItem = await MenuService.getMenuItemById(id);
+      const menuItemWithPublicUrls = MenuController.mapMenuItemMediaUrls(
+        req,
+        menuItem,
+      );
 
       res.status(200).json({
         success: true,
         message: "Menu item retrieved successfully",
-        data: menuItem,
+        data: menuItemWithPublicUrls,
       });
     } catch (error) {
       next(error);
@@ -142,14 +165,17 @@ export class MenuController {
         limitNum,
         skipNum,
       );
+      const normalizedItems = result.data.map((item: any) =>
+        MenuController.mapMenuItemMediaUrls(req, item),
+      );
 
       res.status(200).json({
         success: true,
         message: "Menu items retrieved successfully",
         data: {
-          menuItems: result.data,
+          menuItems: normalizedItems,
           pagination: result.pagination,
-          count: result.data.length,
+          count: normalizedItems.length,
         },
       });
     } catch (error) {
@@ -185,14 +211,17 @@ export class MenuController {
         limitNum,
         skipNum,
       );
+      const normalizedItems = result.data.map((item: any) =>
+        MenuController.mapMenuItemMediaUrls(req, item),
+      );
 
       res.status(200).json({
         success: true,
         message: "Menu items retrieved successfully",
         data: {
-          menuItems: result.data,
+          menuItems: normalizedItems,
           pagination: result.pagination,
-          count: result.data.length,
+          count: normalizedItems.length,
         },
       });
     } catch (error) {
