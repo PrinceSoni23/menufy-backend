@@ -10,6 +10,7 @@ import { AppError } from "../middleware/errorHandler";
 import { MenuItem, Restaurant } from "../models";
 import logger from "../utils/logger";
 import { validateObjectId } from "../utils/validation";
+import { v2 as cloudinary } from "cloudinary";
 
 export class UploadController {
   /**
@@ -41,16 +42,45 @@ export class UploadController {
           413,
           `File size exceeds maximum of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
         );
+      // Upload to Cloudinary for persistent storage (Render.com ephemeral disk issue)
+      let model3DUrl: string;
+      try {
+        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+          resource_type: "raw",
+          folder: "restaurant/3d-models",
+          public_id: req.file.filename.replace(/\.[^.]+$/, ""), // Remove extension
+          flags: "immutable",
+          timeout: 120000,
+        });
+        model3DUrl = uploadResult.secure_url;
+        logger.info(`[3D UPLOAD] Cloudinary upload success: ${model3DUrl}`);
+      } catch (cloudinaryError) {
+        logger.error(
+          `[3D UPLOAD] Cloudinary upload failed: ${cloudinaryError}`,
+        );
+        throw new AppError(
+          500,
+          "Failed to upload 3D model to cloud storage. Please try again.",
+        );
+      }
+      
+      // Clean up local file after successful Cloudinary upload
+      try {
+        deleteImage(req.file.filename);
+      } catch (e) {
+        logger.warn(
+          `[3D UPLOAD] Failed to clean up local file ${req.file.filename}`,
+        );
       }
 
       if (req.file.size < MIN_FILE_SIZE) {
         deleteImage(req.file.filename);
-        throw new AppError(400, "File size is too small");
+        `[3D UPLOAD] Updating MenuItem ${menuItemId} with model3D URL: ${model3DUrl}`,
       }
 
       // CRITICAL FIX: Backend MIME type validation
       const ALLOWED_MIME_TYPES = [
-        "image/jpeg",
+          model3DUrl: model3DUrl, // Store full Cloudinary URL
         "image/png",
         "image/webp",
         "image/gif",
@@ -59,8 +89,7 @@ export class UploadController {
         deleteImage(req.file.filename);
         throw new AppError(
           400,
-          `File type ${req.file.mimetype} is not allowed. Only JPEG, PNG, WebP, and GIF are supported.`,
-        );
+          model3DUrl: model3DUrl,
       }
 
       // CRITICAL FIX: Validate file extension matches MIME type
