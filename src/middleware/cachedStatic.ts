@@ -51,8 +51,16 @@ export const cachedStaticMiddleware = (
       // Set response headers
       res.set("Content-Type", getMimeType(ext));
       res.set("Content-Length", fileData.length.toString());
-      res.set("Access-Control-Allow-Origin", "*");
+      // Echo origin if present to avoid wildcard + credentials mismatch
+      const origin = (req.get("origin") as string) || "*";
+      res.set("Access-Control-Allow-Origin", origin);
       res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      // Ensure we don't send Access-Control-Allow-Credentials with wildcard origin
+      try {
+        res.removeHeader("Access-Control-Allow-Credentials");
+      } catch (e) {
+        // ignore
+      }
 
       // Cache headers (same as express.static)
       if (ext === ".glb") {

@@ -82,13 +82,21 @@ if (!fs.existsSync(uploadsDir)) {
 
 // CORS preflight
 app.use("/uploads", (req, res, next) => {
-  res.set("Access-Control-Allow-Origin", "*");
+  // Echo the incoming origin when present; avoid wildcard with credentials mismatch
+  const origin = (req.get("origin") as string) || "*";
+  res.set("Access-Control-Allow-Origin", origin);
   res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
   res.set("Access-Control-Allow-Headers", "*");
 
   if (req.method === "OPTIONS") {
     res.status(200).end();
   } else {
+    // Remove credential header to prevent invalid wildcard + credentials combo
+    try {
+      res.removeHeader("Access-Control-Allow-Credentials");
+    } catch (e) {
+      // ignore
+    }
     next();
   }
 });
@@ -101,9 +109,13 @@ app.use(
   "/uploads",
   express.static(uploadsDir, {
     setHeaders: (res, path) => {
+      // For static file responses, echo origin and avoid sending credentials header
       res.set("Access-Control-Allow-Origin", "*");
       res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
       res.set("Access-Control-Allow-Headers", "*");
+      try {
+        res.removeHeader("Access-Control-Allow-Credentials");
+      } catch (e) {}
 
       // Add cache headers based on file type
       if (path.endsWith(".glb")) {
