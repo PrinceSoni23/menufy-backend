@@ -56,12 +56,17 @@ const updateMenuItemSchema = Joi.object({
 });
 
 export class MenuController {
-  private static toPublicMediaUrl(req: Request, value?: string): string | undefined {
+  private static toPublicMediaUrl(
+    req: Request,
+    value?: string,
+  ): string | undefined {
     if (!value) return value;
     if (/^https?:\/\//i.test(value)) return value;
 
     const baseUrl = resolvePublicBaseUrl(req).replace(/\/$/, "");
-    const normalized = value.startsWith("/") ? value : `/uploads/images/${value}`;
+    const normalized = value.startsWith("/")
+      ? value
+      : `/uploads/images/${value}`;
     return `${baseUrl}${normalized}`;
   }
 
