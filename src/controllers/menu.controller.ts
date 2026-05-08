@@ -14,6 +14,7 @@ const createMenuItemSchema = Joi.object({
   currency: Joi.string().default("USD"),
   category: Joi.string().required(),
   imageUrl2D: Joi.string()
+    .allow("")
     .optional()
     .default("https://via.placeholder.com/300x300?text=No+Image"), // Default placeholder if not provided
   model3DUrl: Joi.string().optional(), // 3D model file URL (optional at creation)
@@ -38,7 +39,7 @@ const updateMenuItemSchema = Joi.object({
   price: Joi.number().positive().optional(),
   currency: Joi.string().optional(),
   category: Joi.string().optional(),
-  imageUrl2D: Joi.string().uri().optional(),
+  imageUrl2D: Joi.string().allow("").uri().optional(),
   model3DUrl: Joi.string().optional(), // Allow updating 3D model
   variants: Joi.array()
     .items(
@@ -56,6 +57,16 @@ const updateMenuItemSchema = Joi.object({
 });
 
 export class MenuController {
+  private static normalizeImageUrlInput(value?: string): string | undefined {
+    if (typeof value !== "string") return value;
+
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    if (/^data:/i.test(trimmed)) return undefined;
+
+    return trimmed;
+  }
+
   private static toPublicMediaUrl(
     req: Request,
     value?: string,
@@ -101,11 +112,17 @@ export class MenuController {
       }
 
       const { restaurantId } = value;
+      const normalizedValue = {
+        ...value,
+        imageUrl2D:
+          MenuController.normalizeImageUrlInput(value.imageUrl2D) ||
+          "https://via.placeholder.com/300x300?text=No+Image",
+      };
 
       const menuItem = await MenuService.createMenuItem(
         restaurantId,
         req.user.userId,
-        value,
+        normalizedValue,
       );
 
       res.status(201).json({
@@ -276,12 +293,21 @@ export class MenuController {
         throw new AppError(400, messages.join(", "));
       }
 
+      const normalizedValue = {
+        ...value,
+        imageUrl2D: MenuController.normalizeImageUrlInput(value.imageUrl2D),
+      };
+
+      if (!normalizedValue.imageUrl2D) {
+        delete normalizedValue.imageUrl2D;
+      }
+
       // Use the actual restaurantId from the menu item, not from request body
       const updatedItem = await MenuService.updateMenuItem(
         id,
         menuItem.restaurantId.toString(),
         req.user.userId,
-        value,
+        normalizedValue,
       );
 
       res.status(200).json({
