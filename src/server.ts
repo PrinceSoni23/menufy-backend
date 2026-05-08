@@ -66,19 +66,21 @@ app.use("/api/", limiter);
 // ==================== COMPRESSION ====================
 // Enable GZIP compression for faster file transfer (60-70% size reduction)
 import compression from "compression";
-app.use(compression({
-  level: 6, // Balance between CPU and compression (1-9, default 6)
-  threshold: 1024, // Only compress files > 1KB
-  filter: (req: Request, res: Response) => {
-    // Compress 3D models and images in transit
-    // Browser automatically decompresses
-    const contentType = res.get('content-type') || '';
-    if (/(glb|gltf|json|javascript|text)/.test(contentType)) {
-      return true;
-    }
-    return compression.filter(req, res);
-  }
-}));
+app.use(
+  compression({
+    level: 6, // Balance between CPU and compression (1-9, default 6)
+    threshold: 1024, // Only compress files > 1KB
+    filter: (req: Request, res: Response) => {
+      // Compress 3D models and images in transit
+      // Browser automatically decompresses
+      const contentType = res.get("content-type") || "";
+      if (/(glb|gltf|json|javascript|text)/.test(contentType)) {
+        return true;
+      }
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // ==================== BODY PARSING ====================
 app.use(express.json({ limit: "50mb" }));
@@ -101,17 +103,17 @@ if (!fs.existsSync(uploadsDir)) {
 app.use("/uploads", (req: Request, res: Response, next) => {
   // Set HTTP caching headers to improve repeat load performance
   const filePath = req.path.toLowerCase();
-  
-  if (filePath.endsWith('.glb') || filePath.endsWith('.gltf')) {
+
+  if (filePath.endsWith(".glb") || filePath.endsWith(".gltf")) {
     // 3D models: cache for 30 days (immutable - they don't change)
     // First load: ~500ms-3s, Repeat load: <50ms (browser cache)
-    res.set('Cache-Control', 'public, max-age=2592000, immutable');
-    res.set('ETag', Buffer.from(filePath).toString('base64').substring(0, 27)); // 27 char ETags
+    res.set("Cache-Control", "public, max-age=2592000, immutable");
+    res.set("ETag", Buffer.from(filePath).toString("base64").substring(0, 27)); // 27 char ETags
   } else if (/\.(jpg|jpeg|png|webp|gif)$/i.test(filePath)) {
     // Images: cache for 7 days
-    res.set('Cache-Control', 'public, max-age=604800');
+    res.set("Cache-Control", "public, max-age=604800");
   }
-  
+
   // CORS preflight
   const origin = (req.get("origin") as string) || "*";
   res.set("Access-Control-Allow-Origin", origin);

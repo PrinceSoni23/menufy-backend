@@ -59,17 +59,19 @@ const fileFilter3D = (
     "application/octet-stream", // .glb fallback mime type
   ];
 
-  const isGLB = file.originalname.toLowerCase().endsWith('.glb');
-  
+  const isGLB = file.originalname.toLowerCase().endsWith(".glb");
+
   if (isGLB && allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(
-      "Only .GLB (binary 3D model files) are allowed. " +
-      "Please convert your GLTF/OBJ models to GLB format using: " +
-      "• Blender (File > Export as glTF Binary) " +
-      "• Online tools (gltf.report, cesium.com/blog/3d-model-conversion/)"
-    ));
+    cb(
+      new Error(
+        "Only .GLB (binary 3D model files) are allowed. " +
+          "Please convert your GLTF/OBJ models to GLB format using: " +
+          "• Blender (File > Export as glTF Binary) " +
+          "• Online tools (gltf.report, cesium.com/blog/3d-model-conversion/)",
+      ),
+    );
   }
 };
 
