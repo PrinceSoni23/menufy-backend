@@ -46,23 +46,30 @@ const fileFilter = (
   }
 };
 
-// File filter for 3D models
+// File filter for 3D models - GLB ONLY (30-50% smaller than GLTF)
 const fileFilter3D = (
   req: Request,
   file: Express.Multer.File,
   cb: FileFilterCallback,
 ) => {
+  // Only allow .glb (binary format) for optimal performance
+  // GLB is 30-50% smaller than GLTF and will be loaded faster
   const allowedMimes = [
     "model/gltf-binary",
-    "model/gltf+json",
-    "model/obj",
-    "application/octet-stream", // Sometimes .glb comes as this
+    "application/octet-stream", // .glb fallback mime type
   ];
 
-  if (allowedMimes.includes(file.mimetype)) {
+  const isGLB = file.originalname.toLowerCase().endsWith('.glb');
+  
+  if (isGLB && allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Only 3D model files are allowed (.glb, .gltf, .obj)"));
+    cb(new Error(
+      "Only .GLB (binary 3D model files) are allowed. " +
+      "Please convert your GLTF/OBJ models to GLB format using: " +
+      "• Blender (File > Export as glTF Binary) " +
+      "• Online tools (gltf.report, cesium.com/blog/3d-model-conversion/)"
+    ));
   }
 };
 
@@ -76,11 +83,13 @@ export const upload = multer({
 });
 
 // Create multer instance for 3D models
+// Reduced from 200MB to 50MB with GLB-only requirement
+// This encourages optimization: 500MB GLTF → 50MB GLB (with Draco: 10-20MB)
 export const upload3D = multer({
   storage,
   fileFilter: fileFilter3D,
   limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB limit for 3D models
+    fileSize: 50 * 1024 * 1024, // 50MB limit for 3D models (GLB only)
   },
 });
 
