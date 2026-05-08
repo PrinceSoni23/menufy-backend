@@ -62,6 +62,9 @@ export class MenuController {
   ): string | undefined {
     if (!value) return value;
     if (/^https?:\/\//i.test(value)) return value;
+    // Legacy bad data may contain data URI previews; return as-is instead of
+    // incorrectly rewriting to /uploads/images/data:...
+    if (/^data:/i.test(value)) return value;
 
     const baseUrl = resolvePublicBaseUrl(req).replace(/\/$/, "");
     const normalized = value.startsWith("/")
