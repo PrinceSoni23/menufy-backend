@@ -28,13 +28,11 @@ export class UploadController {
 
       const { menuItemId, restaurantId } = req.params;
 
-      // Validate ObjectId formats
       validateObjectId(restaurantId);
       validateObjectId(menuItemId);
 
-      // CRITICAL FIX: Backend file size validation (don't rely on multer alone)
-      const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB max
-      const MIN_FILE_SIZE = 1024; // 1KB min
+      const MAX_FILE_SIZE = 50 * 1024 * 1024;
+      const MIN_FILE_SIZE = 1024;
 
       if (req.file.size > MAX_FILE_SIZE) {
         deleteImage(req.file.filename);
@@ -42,45 +40,16 @@ export class UploadController {
           413,
           `File size exceeds maximum of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
         );
-      // Upload to Cloudinary for persistent storage (Render.com ephemeral disk issue)
-      let model3DUrl: string;
-      try {
-        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
-          resource_type: "raw",
-          folder: "restaurant/3d-models",
-          public_id: req.file.filename.replace(/\.[^.]+$/, ""), // Remove extension
-          flags: "immutable",
-          timeout: 120000,
-        });
-        model3DUrl = uploadResult.secure_url;
-        logger.info(`[3D UPLOAD] Cloudinary upload success: ${model3DUrl}`);
-      } catch (cloudinaryError) {
-        logger.error(
-          `[3D UPLOAD] Cloudinary upload failed: ${cloudinaryError}`,
-        );
-        throw new AppError(
-          500,
-          "Failed to upload 3D model to cloud storage. Please try again.",
-        );
-      }
-      
-      // Clean up local file after successful Cloudinary upload
-      try {
-        deleteImage(req.file.filename);
-      } catch (e) {
-        logger.warn(
-          `[3D UPLOAD] Failed to clean up local file ${req.file.filename}`,
-        );
       }
 
       if (req.file.size < MIN_FILE_SIZE) {
         deleteImage(req.file.filename);
-        `[3D UPLOAD] Updating MenuItem ${menuItemId} with model3D URL: ${model3DUrl}`,
+        throw new AppError(400, "File size is too small");
       }
 
-      // CRITICAL FIX: Backend MIME type validation
       const ALLOWED_MIME_TYPES = [
-          model3DUrl: model3DUrl, // Store full Cloudinary URL
+        "image/jpeg",
+        "image/jpg",
         "image/png",
         "image/webp",
         "image/gif",
@@ -89,10 +58,10 @@ export class UploadController {
         deleteImage(req.file.filename);
         throw new AppError(
           400,
-          model3DUrl: model3DUrl,
+          `File type ${req.file.mimetype} is not allowed`,
+        );
       }
 
-      // CRITICAL FIX: Validate file extension matches MIME type
       const allowedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
       const fileExt = req.file.originalname
         .substring(req.file.originalname.lastIndexOf("."))
@@ -102,7 +71,6 @@ export class UploadController {
         throw new AppError(400, `File extension ${fileExt} is not allowed`);
       }
 
-      // Verify ownership
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
         deleteImage(req.file.filename);
@@ -112,16 +80,13 @@ export class UploadController {
         );
       }
 
-      // Verify menu item exists
       const menuItem = await MenuItem.findById(menuItemId);
       if (!menuItem) {
         deleteImage(req.file.filename);
         throw new AppError(404, "Menu item not found");
       }
 
-      // Upload image
       const uploadedFile = uploadImage(req.file);
-      // Store only the filename in the DB (frontend will resolve to a public URL)
       const storedFilename = uploadedFile.filename;
       const publicImageUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
 
@@ -129,7 +94,6 @@ export class UploadController {
         `Image uploaded for menu item: ${menuItemId} - ${uploadedFile.filename}`,
       );
 
-      // Update menu item with 2D image filename (do not persist environment-specific host)
       await MenuItem.findByIdAndUpdate(menuItemId, {
         imageUrl2D: storedFilename,
       });
@@ -159,7 +123,6 @@ export class UploadController {
     try {
       const { menuItemId, restaurantId } = req.params;
 
-      // CRITICAL DEBUG LOGGING
       logger.info(
         `[3D UPLOAD] Request received - restaurantId: ${restaurantId}, menuItemId: ${menuItemId}`,
       );
@@ -182,13 +145,11 @@ export class UploadController {
         throw new AppError(400, "No 3D model file provided");
       }
 
-      // Validate ObjectId formats
       validateObjectId(restaurantId);
       validateObjectId(menuItemId);
 
-      // File size validation
-      const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB max for 3D models
-      const MIN_FILE_SIZE = 1024; // 1KB min
+      const MAX_FILE_SIZE = 200 * 1024 * 1024;
+      const MIN_FILE_SIZE = 1024;
 
       if (req.file.size > MAX_FILE_SIZE) {
         deleteImage(req.file.filename);
@@ -203,15 +164,7 @@ export class UploadController {
         throw new AppError(400, "File size is too small");
       }
 
-      // Validate 3D model file types
-      const ALLOWED_3D_TYPES = [
-        "model/gltf-binary",
-        "model/gltf+json",
-        "model/obj",
-        "application/octet-stream", // Sometimes .glb comes as this
-      ];
       const ALLOWED_3D_EXTENSIONS = [".glb", ".gltf", ".obj"];
-
       const fileExt = req.file.originalname
         .substring(req.file.originalname.lastIndexOf("."))
         .toLowerCase();
@@ -224,7 +177,6 @@ export class UploadController {
         );
       }
 
-      // Verify ownership
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
         deleteImage(req.file.filename);
@@ -234,32 +186,41 @@ export class UploadController {
         );
       }
 
-      // Verify menu item exists
       const menuItem = await MenuItem.findById(menuItemId);
       if (!menuItem) {
         deleteImage(req.file.filename);
         throw new AppError(404, "Menu item not found");
       }
 
-      // Upload 3D model
-      const uploadedFile = uploadImage(req.file);
-      // Store only the filename in the DB (frontend will resolve to a public URL)
-      const storedFilename = uploadedFile.filename;
-      const publicModelUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
+      let model3DUrl: string;
+      try {
+        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+          resource_type: "raw",
+          folder: "restaurant/3d-models",
+          public_id: req.file.filename.replace(/\.[^.]+$/, ""),
+          flags: "immutable",
+          timeout: 120000,
+        });
+        model3DUrl = uploadResult.secure_url;
+        logger.info(`[3D UPLOAD] Cloudinary success: ${model3DUrl}`);
+      } catch (cloudinaryError) {
+        logger.error(`[3D UPLOAD] Cloudinary failed: ${cloudinaryError}`);
+        deleteImage(req.file.filename);
+        throw new AppError(
+          500,
+          "Failed to upload 3D model to cloud storage. Please try again.",
+        );
+      }
 
-      logger.info(
-        `[3D UPLOAD] File processed - filename: ${uploadedFile.filename}, URL: ${publicModelUrl}`,
-      );
+      try {
+        deleteImage(req.file.filename);
+      } catch (cleanupError) {
+        logger.warn(`[3D UPLOAD] Cleanup failed for ${req.file.filename}`);
+      }
 
-      // Update menu item with 3D model filename (do not persist environment-specific host)
-      logger.info(
-        `[3D UPLOAD] Updating MenuItem ${menuItemId} with model3D filename: ${storedFilename}`,
-      );
       const updatedMenuItem = await MenuItem.findByIdAndUpdate(
         menuItemId,
-        {
-          model3DUrl: storedFilename,
-        },
+        { model3DUrl },
         { new: true },
       );
 
@@ -274,8 +235,7 @@ export class UploadController {
         success: true,
         message: "3D model uploaded successfully",
         data: {
-          model3DUrl: storedFilename,
-          model3DUrlPublic: publicModelUrl,
+          model3DUrl,
           menuItem: updatedMenuItem,
         },
       });
