@@ -72,15 +72,26 @@ export class MenuController {
     value?: string,
   ): string | undefined {
     if (!value) return value;
-    if (/^https?:\/\//i.test(value)) return value;
+    const trimmed = value.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
     // Legacy bad data may contain data URI previews; return as-is instead of
     // incorrectly rewriting to /uploads/images/data:...
-    if (/^data:/i.test(value)) return value;
+    if (/^data:/i.test(trimmed)) return trimmed;
 
     const baseUrl = resolvePublicBaseUrl(req).replace(/\/$/, "");
-    const normalized = value.startsWith("/")
-      ? value
-      : `/uploads/images/${value}`;
+    const withoutApiPrefix = trimmed.replace(/^\/api(?=\/)/i, "");
+
+    // Support legacy stored values like:
+    // - uploads/images/file.jpg
+    // - /uploads/images/file.jpg
+    // - uploads/file.jpg
+    // - /uploads/file.jpg
+    const normalized = withoutApiPrefix.startsWith("/")
+      ? withoutApiPrefix
+      : withoutApiPrefix.startsWith("uploads/")
+        ? `/${withoutApiPrefix}`
+        : `/uploads/images/${withoutApiPrefix}`;
+
     return `${baseUrl}${normalized}`;
   }
 
