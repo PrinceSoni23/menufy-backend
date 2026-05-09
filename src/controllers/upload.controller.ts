@@ -10,7 +10,7 @@ import { AppError } from "../middleware/errorHandler";
 import { MenuItem, Restaurant } from "../models";
 import logger from "../utils/logger";
 import { validateObjectId } from "../utils/validation";
-import { v2 as cloudinary } from "cloudinary";
+// Local uploads only (no Cloudinary)
 
 export class UploadController {
   /**
@@ -192,31 +192,10 @@ export class UploadController {
         throw new AppError(404, "Menu item not found");
       }
 
-      let model3DUrl: string;
-      try {
-        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
-          resource_type: "raw",
-          folder: "restaurant/3d-models",
-          public_id: req.file.filename.replace(/\.[^.]+$/, ""),
-          flags: "immutable",
-          timeout: 120000,
-        });
-        model3DUrl = uploadResult.secure_url;
-        logger.info(`[3D UPLOAD] Cloudinary success: ${model3DUrl}`);
-      } catch (cloudinaryError) {
-        logger.error(`[3D UPLOAD] Cloudinary failed: ${cloudinaryError}`);
-        deleteImage(req.file.filename);
-        throw new AppError(
-          500,
-          "Failed to upload 3D model to cloud storage. Please try again.",
-        );
-      }
-
-      try {
-        deleteImage(req.file.filename);
-      } catch (cleanupError) {
-        logger.warn(`[3D UPLOAD] Cleanup failed for ${req.file.filename}`);
-      }
+      // Use local uploads directory and serve from /uploads/images/:filename
+      const storedFilename = req.file.filename;
+      const model3DUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${storedFilename}`;
+      logger.info(`[3D UPLOAD] Stored locally: ${model3DUrl}`);
 
       const updatedMenuItem = await MenuItem.findByIdAndUpdate(
         menuItemId,
