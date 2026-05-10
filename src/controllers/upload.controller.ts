@@ -192,9 +192,9 @@ export class UploadController {
         throw new AppError(404, "Menu item not found");
       }
 
-      // Use local uploads directory and serve from /uploads/images/:filename
+      // Use local uploads directory and serve from /uploads/3d-models/:filename
       const storedFilename = req.file.filename;
-      const model3DUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${storedFilename}`;
+      const model3DUrl = `${resolvePublicBaseUrl(req)}/uploads/3d-models/${storedFilename}`;
       logger.info(`[3D UPLOAD] Stored locally: ${model3DUrl}`);
 
       const updatedMenuItem = await MenuItem.findByIdAndUpdate(

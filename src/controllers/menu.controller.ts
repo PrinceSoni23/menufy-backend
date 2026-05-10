@@ -13,6 +13,14 @@ const createMenuItemSchema = Joi.object({
   price: Joi.number().positive().required(),
   currency: Joi.string().default("USD"),
   category: Joi.string().required(),
+  ingredients: Joi.alternatives()
+    .try(
+      Joi.array().items(Joi.string().trim().allow("")),
+      Joi.string().allow(""),
+    )
+    .optional()
+    .default([]),
+  calories: Joi.number().min(0).optional(),
   imageUrl2D: Joi.string()
     .allow("")
     .optional()
@@ -39,8 +47,15 @@ const updateMenuItemSchema = Joi.object({
   price: Joi.number().positive().optional(),
   currency: Joi.string().optional(),
   category: Joi.string().optional(),
+  ingredients: Joi.alternatives()
+    .try(
+      Joi.array().items(Joi.string().trim().allow("")),
+      Joi.string().allow(""),
+    )
+    .optional(),
+  calories: Joi.number().min(0).optional(),
   imageUrl2D: Joi.string().allow("").uri().optional(),
-  model3DUrl: Joi.string().optional(), // Allow updating 3D model
+  model3DUrl: Joi.string().allow("").optional(), // Allow updating 3D model
   variants: Joi.array()
     .items(
       Joi.object({
@@ -104,6 +119,29 @@ export class MenuController {
     };
   }
 
+  private static normalizeIngredients(value: unknown): string[] | undefined {
+    if (value === undefined || value === null) return undefined;
+
+    if (Array.isArray(value)) {
+      const ingredients = value
+        .map(item => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean);
+
+      return ingredients;
+    }
+
+    if (typeof value === "string") {
+      const ingredients = value
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean);
+
+      return ingredients;
+    }
+
+    return undefined;
+  }
+
   /**
    * POST /api/menu
    * Create a new menu item
@@ -128,6 +166,11 @@ export class MenuController {
         imageUrl2D:
           MenuController.normalizeImageUrlInput(value.imageUrl2D) ||
           "https://via.placeholder.com/300x300?text=No+Image",
+        ingredients: MenuController.normalizeIngredients(value.ingredients),
+        calories:
+          value.calories === undefined || value.calories === null
+            ? undefined
+            : Number(value.calories),
       };
 
       const menuItem = await MenuService.createMenuItem(
@@ -307,6 +350,12 @@ export class MenuController {
       const normalizedValue = {
         ...value,
         imageUrl2D: MenuController.normalizeImageUrlInput(value.imageUrl2D),
+        model3DUrl: MenuController.normalizeImageUrlInput(value.model3DUrl),
+        ingredients: MenuController.normalizeIngredients(value.ingredients),
+        calories:
+          value.calories === undefined || value.calories === null
+            ? undefined
+            : Number(value.calories),
       };
 
       if (!normalizedValue.imageUrl2D) {

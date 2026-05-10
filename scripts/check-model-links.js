@@ -34,7 +34,8 @@ async function main() {
     .exec();
   console.log(`Found ${items.length} menu items with model3DUrl`);
 
-  const uploadsDir = path.join(__dirname, "..", "uploads", "images");
+  const imagesDir = path.join(__dirname, "..", "uploads", "images");
+  const modelsDir = path.join(__dirname, "..", "uploads", "3d-models");
 
   const missing = [];
   for (const item of items) {
@@ -48,13 +49,16 @@ async function main() {
       // Not a URL, maybe stored as filename
       filename = path.basename(url);
     }
-    const filePath = path.join(uploadsDir, filename);
-    if (!fs.existsSync(filePath)) {
+
+    const filePathImages = path.join(imagesDir, filename);
+    const filePathModels = path.join(modelsDir, filename);
+
+    if (!fs.existsSync(filePathImages) && !fs.existsSync(filePathModels)) {
       missing.push({
         name: item.name || "(no name)",
         model3DUrl: url,
         filename,
-        path: filePath,
+        paths: [filePathImages, filePathModels],
       });
     }
   }

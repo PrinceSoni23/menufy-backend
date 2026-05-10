@@ -59,6 +59,8 @@ export interface IMenuItem {
   currency: string;
   category: string;
   imageUrl2D: string;
+  ingredients?: string[];
+  calories?: number;
   model3DUrl?: string; // 3D model uploaded by owner
   variants: Array<{
     name: string;

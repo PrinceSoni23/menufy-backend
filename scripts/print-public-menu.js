@@ -51,11 +51,23 @@ async function main() {
     } catch (e) {
       filename = model ? path.basename(model) : null;
     }
-    const filepath = filename
+    const filepathImage = filename
       ? path.join(__dirname, "..", "uploads", "images", filename)
       : null;
+    const filepathModel = filename
+      ? path.join(__dirname, "..", "uploads", "3d-models", filename)
+      : null;
+    const existsImage = filepathImage ? fs.existsSync(filepathImage) : false;
+    const existsModel = filepathModel ? fs.existsSync(filepathModel) : false;
+    const existsText = existsImage
+      ? "images"
+      : existsModel
+        ? "3d-models"
+        : "none";
     console.log(
-      `- ${it._id} | ${name} | model3DUrl: ${model} | fileExists: ${filepath ? fs.existsSync(filepath) : "n/a"} ${filepath || ""}`,
+      `- ${it._id} | ${name} | model3DUrl: ${model} | fileExists: ${existsText} ${
+        existsImage ? filepathImage : existsModel ? filepathModel : ""
+      }`,
     );
   });
 

@@ -6,20 +6,42 @@ import { Request } from "express";
 import logger from "./logger";
 import { fileCache } from "./fileCache";
 
-// Create uploads directory if it doesn't exist
-const uploadDir = path.join(__dirname, "../../uploads/images");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// Create uploads directories if they don't exist
+const imagesDir = path.join(__dirname, "../../uploads/images");
+const modelsDir = path.join(__dirname, "../../uploads/3d-models");
+if (!fs.existsSync(imagesDir)) {
+  fs.mkdirSync(imagesDir, { recursive: true });
+}
+if (!fs.existsSync(modelsDir)) {
+  fs.mkdirSync(modelsDir, { recursive: true });
 }
 
-// Configure multer storage
-const storage = multer.diskStorage({
+// Configure multer storage for images and 3D models
+const storageImage = multer.diskStorage({
   destination: (
     req: Request,
     file: Express.Multer.File,
     cb: (error: Error | null, destination: string) => void,
   ) => {
-    cb(null, uploadDir);
+    cb(null, imagesDir);
+  },
+  filename: (
+    req: Request,
+    file: Express.Multer.File,
+    cb: (error: Error | null, filename: string) => void,
+  ) => {
+    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+const storageModel = multer.diskStorage({
+  destination: (
+    req: Request,
+    file: Express.Multer.File,
+    cb: (error: Error | null, destination: string) => void,
+  ) => {
+    cb(null, modelsDir);
   },
   filename: (
     req: Request,
@@ -68,7 +90,7 @@ const fileFilter3D = (
 
 // Create multer instance
 export const upload = multer({
-  storage,
+  storage: storageImage,
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
@@ -77,7 +99,7 @@ export const upload = multer({
 
 // Create multer instance for 3D models
 export const upload3D = multer({
-  storage,
+  storage: storageModel,
   fileFilter: fileFilter3D,
   limits: {
     fileSize: 200 * 1024 * 1024, // 200MB limit for 3D models
@@ -149,7 +171,7 @@ export function uploadImage(file: Express.Multer.File): {
  */
 export function deleteImage(filename: string): boolean {
   try {
-    const filePath = path.join(uploadDir, filename);
+    const filePath = path.join(imagesDir, filename);
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
@@ -166,6 +188,24 @@ export function deleteImage(filename: string): boolean {
   }
 }
 
+export function deleteModel(filename: string): boolean {
+  try {
+    const filePath = path.join(modelsDir, filename);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      fileCache.invalidate(filePath);
+      logger.info(`Model deleted: ${filename}`);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    logger.error(`Failed to delete model: ${filename} - ${error}`);
+    return false;
+  }
+}
+
 /**
  * Get image URL
  */
@@ -174,10 +214,15 @@ export function getImageUrl(filename: string): string {
   return `${baseUrl}/uploads/images/${filename}`;
 }
 
+export function getModelUrl(filename: string): string {
+  const baseUrl = resolvePublicBaseUrl();
+  return `${baseUrl}/uploads/3d-models/${filename}`;
+}
+
 /**
  * Check if image exists
  */
 export function imageExists(filename: string): boolean {
-  const filePath = path.join(uploadDir, filename);
+  const filePath = path.join(imagesDir, filename);
   return fs.existsSync(filePath);
 }

@@ -34,6 +34,15 @@ const menuItemSchema = new Schema<IMenuItemDocument>(
       required: true,
       trim: true,
     },
+    ingredients: {
+      type: [String],
+      default: [],
+    },
+    calories: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     // 2D Image uploaded by user
     imageUrl2D: {
       type: String,

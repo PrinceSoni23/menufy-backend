@@ -185,18 +185,30 @@ export class MenuService {
     const menuItem = await MenuItem.findByIdAndUpdate(
       menuItemId,
       {
-        name: data.name,
-        description: data.description,
-        price: data.price,
-        currency: data.currency,
-        category: data.category,
-        imageUrl2D: data.imageUrl2D,
-        model3DUrl: data.model3DUrl,
-        variants: data.variants,
-        arEnabled: data.arEnabled,
-        scaling: data.scaling,
-        displayOrder: data.displayOrder,
-        isActive: data.isActive,
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.description !== undefined
+          ? { description: data.description }
+          : {}),
+        ...(data.price !== undefined ? { price: data.price } : {}),
+        ...(data.currency !== undefined ? { currency: data.currency } : {}),
+        ...(data.category !== undefined ? { category: data.category } : {}),
+        ...(data.ingredients !== undefined
+          ? { ingredients: data.ingredients }
+          : {}),
+        ...(data.calories !== undefined ? { calories: data.calories } : {}),
+        ...(data.imageUrl2D !== undefined
+          ? { imageUrl2D: data.imageUrl2D }
+          : {}),
+        ...(data.model3DUrl !== undefined
+          ? { model3DUrl: data.model3DUrl }
+          : {}),
+        ...(data.variants !== undefined ? { variants: data.variants } : {}),
+        ...(data.arEnabled !== undefined ? { arEnabled: data.arEnabled } : {}),
+        ...(data.scaling !== undefined ? { scaling: data.scaling } : {}),
+        ...(data.displayOrder !== undefined
+          ? { displayOrder: data.displayOrder }
+          : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       },
       { new: true },
     );
