@@ -28,7 +28,12 @@ export class QRCodeService {
 
     const code = generateShortCode();
     // Prefer the frontend origin sent by the client; fall back to the public API URL helper.
-    const baseUrl = (appUrl || process.env.APP_URL || process.env.PUBLIC_API_URL || "")
+    const baseUrl = (
+      appUrl ||
+      process.env.APP_URL ||
+      process.env.PUBLIC_API_URL ||
+      ""
+    )
       .trim()
       .replace(/\/$/, "");
     const fullPublicUrl = `${baseUrl}/menu/${publicUrl}?v=${code}`;
@@ -186,7 +191,12 @@ export class QRCodeService {
 
     const code = generateShortCode();
     // Prefer the frontend origin sent by the client; fall back to the public API URL helper.
-    const baseUrl = (appUrl || process.env.APP_URL || process.env.PUBLIC_API_URL || "")
+    const baseUrl = (
+      appUrl ||
+      process.env.APP_URL ||
+      process.env.PUBLIC_API_URL ||
+      ""
+    )
       .trim()
       .replace(/\/$/, "");
     const fullPublicUrl = `${baseUrl}/menu/${qrCode.publicUrl}?v=${code}`;
