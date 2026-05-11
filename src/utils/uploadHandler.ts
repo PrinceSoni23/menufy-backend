@@ -138,6 +138,8 @@ export function resolvePublicBaseUrl(req?: Request): string {
     return publicOverride;
   }
 
+  //second check
+
   // 2. Check API_URL (if not localhost)
   const configuredBaseUrl = (
     process.env.API_URL ||
