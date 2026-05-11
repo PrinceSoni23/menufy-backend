@@ -95,14 +95,14 @@ export class UploadController {
       );
 
       await MenuItem.findByIdAndUpdate(menuItemId, {
-        imageUrl2D: storedFilename,
+        imageUrl2D: publicImageUrl,
       });
 
       res.status(201).json({
         success: true,
         message: "Image uploaded successfully",
         data: {
-          imageUrl: storedFilename,
+          imageUrl: publicImageUrl,
           imageUrlPublic: publicImageUrl,
         },
       });

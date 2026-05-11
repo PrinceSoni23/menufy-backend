@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { UploadController } from "../controllers/upload.controller";
+import { UploadVerifyController } from "../controllers/upload-verify.controller";
 import { verifyToken } from "../middleware/auth.middleware";
 import { upload, upload3D } from "../utils/uploadHandler";
 import { validateObjectId } from "../utils/validation";
@@ -89,5 +90,18 @@ router.post(
  * No authentication required - Tripo AI sends webhook
  */
 router.post("/conversion-complete", UploadController.conversionWebhook);
+
+/**
+ * GET /api/upload/verify
+ * Check current public URL configuration and accessibility
+ * No auth required - used for debugging
+ */
+router.get("/verify", UploadVerifyController.verifyPublicUrl);
+
+/**
+ * GET /api/upload/test/:filename
+ * Test if a specific file is accessible via public URL
+ */
+router.get("/test/:filename", UploadVerifyController.testFileAccess);
 
 export default router;

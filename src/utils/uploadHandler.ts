@@ -109,7 +109,36 @@ export const upload3D = multer({
 const isLocalhostBaseUrl = (baseUrl: string): boolean =>
   /^(https?:\/\/)?(localhost|127\.0\.0\.1|::1)(:\d+)?(\/|$)/i.test(baseUrl);
 
+/**
+ * Resolve the public base URL for uploaded files
+ * Ensures images/3D models are accessible from ANY device/browser/location
+ *
+ * Priority:
+ * 1. PUBLIC_API_URL env var (explicit override - set this to fix)
+ * 2. API_URL env var (if not localhost)
+ * 3. RENDER_EXTERNAL_URL (Render.com)
+ * 4. X-Forwarded-* headers (proxies, load balancers)
+ * 5. Request origin (current hostname)
+ * 6. Fallback http://localhost:5000
+ *
+ * Set in .env:
+ *   # Production domain
+ *   PUBLIC_API_URL=https://yourdomain.com
+ *
+ *   # Local network access
+ *   PUBLIC_API_URL=http://192.168.1.100:5000
+ */
 export function resolvePublicBaseUrl(req?: Request): string {
+  // 1. Explicit PUBLIC_API_URL override (highest priority)
+  const publicOverride = (process.env.PUBLIC_API_URL || "")
+    .trim()
+    .replace(/\/$/, "");
+  if (publicOverride) {
+    logger.debug(`[URL Resolution] Using PUBLIC_API_URL: ${publicOverride}`);
+    return publicOverride;
+  }
+
+  // 2. Check API_URL (if not localhost)
   const configuredBaseUrl = (
     process.env.API_URL ||
     process.env.RENDER_EXTERNAL_URL ||
@@ -119,9 +148,11 @@ export function resolvePublicBaseUrl(req?: Request): string {
     .replace(/\/$/, "");
 
   if (configuredBaseUrl && !isLocalhostBaseUrl(configuredBaseUrl)) {
+    logger.debug(`[URL Resolution] Using API_URL: ${configuredBaseUrl}`);
     return configuredBaseUrl;
   }
 
+  // 3. Use request headers (proxies, load balancers)
   if (req) {
     const forwardedProto = (
       req.headers["x-forwarded-proto"] as string | undefined
@@ -134,15 +165,27 @@ export function resolvePublicBaseUrl(req?: Request): string {
       ?.split(",")[0]
       ?.trim();
 
-    const protocol = forwardedProto || req.protocol || "http";
-    const host = forwardedHost || req.get("host");
+    if (forwardedHost) {
+      const protocol = forwardedProto || "https";
+      const url = `${protocol}://${forwardedHost}`.replace(/\/$/, "");
+      logger.debug(`[URL Resolution] Using X-Forwarded: ${url}`);
+      return url;
+    }
+
+    const protocol = req.protocol || "http";
+    const host = req.get("host");
 
     if (host) {
-      return `${protocol}://${host}`.replace(/\/$/, "");
+      const url = `${protocol}://${host}`.replace(/\/$/, "");
+      logger.debug(`[URL Resolution] Using request origin: ${url}`);
+      return url;
     }
   }
 
-  return configuredBaseUrl || "http://localhost:5000";
+  // 4. Fallback
+  const fallback = configuredBaseUrl || "http://localhost:5000";
+  logger.debug(`[URL Resolution] Using fallback: ${fallback}`);
+  return fallback;
 }
 
 /**
