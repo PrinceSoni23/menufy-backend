@@ -1,10 +1,122 @@
-import { Restaurant } from "../models";
+import { MenuItem, QRCode, Restaurant } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { IRestaurant } from "../types";
 import { generatePublicUrl } from "../utils/urlGenerator";
 
 export class RestaurantService {
+  /**
+   * Get a live dashboard summary for an owner.
+   * Computes values from the source collections so production dashboards
+   * do not rely on stale counters stored on restaurant documents.
+   */
+  static async getOwnerDashboardSummary(ownerId: string): Promise<any> {
+    const restaurants = await Restaurant.find({ ownerId })
+      .select("_id isActive")
+      .lean();
+
+    const restaurantIds = restaurants.map(restaurant => restaurant._id);
+    const activeRestaurants = restaurants.filter(
+      restaurant => restaurant.isActive !== false,
+    ).length;
+
+    if (restaurantIds.length === 0) {
+      return {
+        totalRestaurants: 0,
+        totalMenuItems: 0,
+        totalQRScans: 0,
+        totalModelViews: 0,
+        modelViewsTrend: 0,
+      };
+    }
+
+    // Calculate current month boundaries
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const previousMonthStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      1,
+    );
+    const previousMonthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      0,
+      23,
+      59,
+      59,
+    );
+
+    const [totalMenuItems, qrCodes, modelViewStats] = await Promise.all([
+      MenuItem.countDocuments({ restaurantId: { $in: restaurantIds } }),
+      QRCode.find({ restaurantId: { $in: restaurantIds } })
+        .select("totalScans")
+        .lean(),
+      MenuItem.aggregate([
+        { $match: { restaurantId: { $in: restaurantIds } } },
+        {
+          $facet: {
+            currentMonth: [
+              {
+                $match: {
+                  createdAt: { $gte: currentMonthStart },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  total: { $sum: { $ifNull: ["$arViews", 0] } },
+                },
+              },
+            ],
+            previousMonth: [
+              {
+                $match: {
+                  createdAt: {
+                    $gte: previousMonthStart,
+                    $lte: previousMonthEnd,
+                  },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  total: { $sum: { $ifNull: ["$arViews", 0] } },
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    ]);
+
+    const totalQRScans = qrCodes.reduce(
+      (sum, qrCode) => sum + (qrCode.totalScans || 0),
+      0,
+    );
+
+    const currentMonthViews = modelViewStats[0]?.currentMonth[0]?.total || 0;
+    const previousMonthViews = modelViewStats[0]?.previousMonth[0]?.total || 0;
+
+    // Calculate trend percentage
+    let modelViewsTrend = 0;
+    if (previousMonthViews > 0) {
+      modelViewsTrend = Math.round(
+        ((currentMonthViews - previousMonthViews) / previousMonthViews) * 100,
+      );
+    } else if (currentMonthViews > 0) {
+      modelViewsTrend = 100; // New views in current month when none existed before
+    }
+
+    return {
+      totalRestaurants: activeRestaurants,
+      totalMenuItems,
+      totalQRScans,
+      totalModelViews: currentMonthViews,
+      modelViewsTrend,
+    };
+  }
+
   /**
    * Create a new restaurant
    */

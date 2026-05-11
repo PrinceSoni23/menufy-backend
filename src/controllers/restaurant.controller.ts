@@ -197,6 +197,34 @@ export class RestaurantController {
   }
 
   /**
+   * GET /api/restaurants/summary
+   * Get live dashboard summary for authenticated owner
+   */
+  static async getDashboardSummary(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      if (!req.user) {
+        throw new AppError(401, "Authentication required");
+      }
+
+      const summary = await RestaurantService.getOwnerDashboardSummary(
+        req.user.userId,
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Dashboard summary retrieved successfully",
+        data: summary,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * PUT /api/restaurants/:id
    * Update restaurant (owner only)
    */

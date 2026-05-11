@@ -56,6 +56,12 @@ router.post(
 router.get("/", verifyToken, RestaurantController.getOwnerRestaurants);
 
 /**
+ * GET /api/restaurants/summary
+ * Get live dashboard summary for authenticated owner
+ */
+router.get("/summary", verifyToken, RestaurantController.getDashboardSummary);
+
+/**
  * GET /api/restaurants/:id
  * Get restaurant by ID
  */
