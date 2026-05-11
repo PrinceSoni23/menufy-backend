@@ -30,7 +30,7 @@ export class QRCodeService {
     const code = generateShortCode();
     // Use resolvePublicBaseUrl() which respects PUBLIC_API_URL env var
     const baseUrl = resolvePublicBaseUrl();
-    const fullPublicUrl = `${baseUrl}/menu/${publicUrl}`;
+    const fullPublicUrl = `${baseUrl}/menu/${publicUrl}?v=${code}`;
 
     try {
       // Generate QR code data URL
@@ -186,7 +186,7 @@ export class QRCodeService {
     const code = generateShortCode();
     // Use resolvePublicBaseUrl() which respects PUBLIC_API_URL env var
     const baseUrl = resolvePublicBaseUrl();
-    const fullPublicUrl = `${baseUrl}/menu/${qrCode.publicUrl}`;
+    const fullPublicUrl = `${baseUrl}/menu/${qrCode.publicUrl}?v=${code}`;
 
     try {
       const qrDataUrl = await QRCode.toDataURL(fullPublicUrl, {
