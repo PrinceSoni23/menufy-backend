@@ -3,6 +3,7 @@ import { QRCode as QRCodeModel, Restaurant } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { generateShortCode } from "../utils/urlGenerator";
+import { resolvePublicBaseUrl } from "../utils/uploadHandler";
 
 export class QRCodeService {
   /**
@@ -27,8 +28,8 @@ export class QRCodeService {
     let qrCode = await QRCodeModel.findOne({ restaurantId });
 
     const code = generateShortCode();
-    // Use appUrl from frontend, fall back to environment variable, then to localhost
-    const baseUrl = appUrl || process.env.APP_URL || "http://localhost:3000";
+    // Use resolvePublicBaseUrl() which respects PUBLIC_API_URL env var
+    const baseUrl = resolvePublicBaseUrl();
     const fullPublicUrl = `${baseUrl}/menu/${publicUrl}`;
 
     try {
