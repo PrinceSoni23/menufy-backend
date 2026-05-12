@@ -35,6 +35,7 @@ import reviewRoutes from "./routes/review.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import qrcodeRoutes from "./routes/qrcode.routes";
 import uploadRoutes from "./routes/upload.routes";
+import mediaRoutes from "./routes/media.routes";
 
 const app: Express = express();
 
@@ -198,6 +199,8 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/qrcode", qrcodeRoutes);
 // Upload & Conversion routes
 app.use("/api/upload", uploadRoutes);
+// Media proxy/cache routes
+app.use("/api/media", mediaRoutes);
 
 app.get("/api", (req: Request, res: Response) => {
   res.json({
