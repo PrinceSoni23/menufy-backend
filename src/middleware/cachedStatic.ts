@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
 import { fileCache } from "../utils/fileCache";
+import logger from "../utils/logger";
 
 /**
  * Middleware to serve files from cache when possible
@@ -40,7 +41,8 @@ export const cachedStaticMiddleware = (
     const fileData = fileCache.getFile(filePath);
 
     if (!fileData) {
-      // File not found - pass to express.static or 404
+      // File not found in cache/disk - log for diagnostics then pass to express.static or 404
+      logger.warn(`[CachedStatic] File not found: ${filePath}`);
       return next();
     }
 

@@ -153,6 +153,36 @@ app.get("/cache/stats", (req: Request, res: Response) => {
   });
 });
 
+// ==================== UPLOADS DIAGNOSTIC ====================
+app.get("/debug/uploads-check", (req: Request, res: Response) => {
+  try {
+    const imagesDir = path.join(__dirname, "../uploads/images");
+    const modelsDir = path.join(__dirname, "../uploads/3d-models");
+
+    const images = fs.existsSync(imagesDir)
+      ? fs.readdirSync(imagesDir).slice(0, 50)
+      : [];
+    const models = fs.existsSync(modelsDir)
+      ? fs.readdirSync(modelsDir).slice(0, 50)
+      : [];
+
+    const imagesCount = images.length;
+    const modelsCount = models.length;
+
+    res.json({
+      status: "OK",
+      uploadsPath: path.join(__dirname, "../uploads"),
+      imagesCount,
+      modelsCount,
+      sampleImages: images,
+      sampleModels: models,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ status: "ERROR", error: String(err) });
+  }
+});
+
 // ==================== API ROUTES ====================
 // Auth routes
 app.use("/api/auth", authRoutes);

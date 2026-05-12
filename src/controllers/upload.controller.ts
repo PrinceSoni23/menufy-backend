@@ -3,6 +3,7 @@ import { ConversionService } from "../services/conversion.service";
 import { MenuService } from "../services/menu.service";
 import {
   uploadImage,
+  uploadModel,
   deleteImage,
   resolvePublicBaseUrl,
 } from "../utils/uploadHandler";
@@ -35,7 +36,7 @@ export class UploadController {
       const MIN_FILE_SIZE = 1024;
 
       if (req.file.size > MAX_FILE_SIZE) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(
           413,
           `File size exceeds maximum of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
@@ -43,7 +44,7 @@ export class UploadController {
       }
 
       if (req.file.size < MIN_FILE_SIZE) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(400, "File size is too small");
       }
 
@@ -55,7 +56,7 @@ export class UploadController {
         "image/gif",
       ];
       if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype)) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(
           400,
           `File type ${req.file.mimetype} is not allowed`,
@@ -67,13 +68,13 @@ export class UploadController {
         .substring(req.file.originalname.lastIndexOf("."))
         .toLowerCase();
       if (!allowedExtensions.includes(fileExt)) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(400, `File extension ${fileExt} is not allowed`);
       }
 
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(
           403,
           "You do not have permission to upload images for this restaurant",
@@ -82,13 +83,13 @@ export class UploadController {
 
       const menuItem = await MenuItem.findById(menuItemId);
       if (!menuItem) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(404, "Menu item not found");
       }
 
-      const uploadedFile = uploadImage(req.file);
+      const uploadedFile = await uploadImage(req.file);
       const storedFilename = uploadedFile.filename;
-      const publicImageUrl = `${resolvePublicBaseUrl(req)}/uploads/images/${uploadedFile.filename}`;
+      const publicImageUrl = uploadedFile.path; // cloudinary secure_url or local path fallback
 
       logger.info(
         `Image uploaded for menu item: ${menuItemId} - ${uploadedFile.filename}`,
@@ -152,7 +153,7 @@ export class UploadController {
       const MIN_FILE_SIZE = 1024;
 
       if (req.file.size > MAX_FILE_SIZE) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(
           413,
           `File size exceeds maximum of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
@@ -160,7 +161,7 @@ export class UploadController {
       }
 
       if (req.file.size < MIN_FILE_SIZE) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(400, "File size is too small");
       }
 
@@ -170,7 +171,7 @@ export class UploadController {
         .toLowerCase();
 
       if (!ALLOWED_3D_EXTENSIONS.includes(fileExt)) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(
           400,
           `File type ${fileExt} is not allowed. Only .glb, .gltf, and .obj are supported.`,
@@ -179,7 +180,7 @@ export class UploadController {
 
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file?.filename);
         throw new AppError(
           403,
           "You do not have permission to upload files for this restaurant",
@@ -193,9 +194,10 @@ export class UploadController {
       }
 
       // Use local uploads directory and serve from /uploads/3d-models/:filename
-      const storedFilename = req.file.filename;
-      const model3DUrl = `${resolvePublicBaseUrl(req)}/uploads/3d-models/${storedFilename}`;
-      logger.info(`[3D UPLOAD] Stored locally: ${model3DUrl}`);
+
+      const uploadedModel = await uploadModel(req.file);
+      const model3DUrl = uploadedModel.path; // cloudinary secure_url or local path
+      logger.info(`[3D UPLOAD] Stored: ${model3DUrl}`);
 
       const updatedMenuItem = await MenuItem.findByIdAndUpdate(
         menuItemId,

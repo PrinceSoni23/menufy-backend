@@ -5,8 +5,9 @@ import multer, { FileFilterCallback } from "multer";
 import { Request } from "express";
 import logger from "./logger";
 import { fileCache } from "./fileCache";
+import { v2 as cloudinary } from "cloudinary";
 
-// Create uploads directories if they don't exist
+// Local uploads dirs are still created for backwards-compatibility (tests, optional local storage)
 const imagesDir = path.join(__dirname, "../../uploads/images");
 const modelsDir = path.join(__dirname, "../../uploads/3d-models");
 if (!fs.existsSync(imagesDir)) {
@@ -16,42 +17,26 @@ if (!fs.existsSync(modelsDir)) {
   fs.mkdirSync(modelsDir, { recursive: true });
 }
 
-// Configure multer storage for images and 3D models
-const storageImage = multer.diskStorage({
-  destination: (
-    req: Request,
-    file: Express.Multer.File,
-    cb: (error: Error | null, destination: string) => void,
-  ) => {
-    cb(null, imagesDir);
-  },
-  filename: (
-    req: Request,
-    file: Express.Multer.File,
-    cb: (error: Error | null, filename: string) => void,
-  ) => {
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
+// Configure Cloudinary if credentials provided
+if (process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME) {
+  try {
+    if (process.env.CLOUDINARY_URL) {
+      cloudinary.config({ cloudinary_url: process.env.CLOUDINARY_URL });
+    } else {
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+    }
+    logger.info("Cloudinary configured for uploads");
+  } catch (err) {
+    logger.warn("Failed to configure Cloudinary:", err);
+  }
+}
 
-const storageModel = multer.diskStorage({
-  destination: (
-    req: Request,
-    file: Express.Multer.File,
-    cb: (error: Error | null, destination: string) => void,
-  ) => {
-    cb(null, modelsDir);
-  },
-  filename: (
-    req: Request,
-    file: Express.Multer.File,
-    cb: (error: Error | null, filename: string) => void,
-  ) => {
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
+// Use memoryStorage so files can be streamed to Cloudinary directly
+const memoryStorage = multer.memoryStorage();
 
 // File filter - only allow images
 const fileFilter = (
@@ -90,7 +75,7 @@ const fileFilter3D = (
 
 // Create multer instance
 export const upload = multer({
-  storage: storageImage,
+  storage: memoryStorage,
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
@@ -99,7 +84,7 @@ export const upload = multer({
 
 // Create multer instance for 3D models
 export const upload3D = multer({
-  storage: storageModel,
+  storage: memoryStorage,
   fileFilter: fileFilter3D,
   limits: {
     fileSize: 200 * 1024 * 1024, // 200MB limit for 3D models
@@ -193,20 +178,81 @@ export function resolvePublicBaseUrl(req?: Request): string {
 /**
  * Upload image file
  */
-export function uploadImage(file: Express.Multer.File): {
+export async function uploadImage(file: Express.Multer.File): Promise<{
   filename: string;
   path: string;
   size: number;
-} {
+}> {
   if (!file) {
     throw new Error("No file uploaded");
   }
 
-  logger.info(`Image uploaded: ${file.filename} (${file.size} bytes)`);
+  // If Cloudinary configured, upload buffer as data URI
+  if (cloudinary.config().cloud_name) {
+    const folder = process.env.CLOUDINARY_FOLDER_IMAGES || "menufy/images";
+    const publicId = `${folder}/${uuidv4()}`;
+    const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const result = await cloudinary.uploader.upload(dataUri, {
+      public_id: publicId,
+      resource_type: "image",
+      overwrite: false,
+      folder,
+    });
 
+    logger.info(`Cloudinary image uploaded: ${result.public_id}`);
+    return {
+      filename: result.public_id,
+      path: result.secure_url,
+      size: file.size,
+    };
+  }
+
+  // Fallback: write to disk (backwards compatibility)
+  const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
+  const dest = path.join(imagesDir, uniqueName);
+  fs.writeFileSync(dest, file.buffer);
+  logger.info(`Image written to disk fallback: ${dest}`);
   return {
-    filename: file.filename,
-    path: file.path,
+    filename: uniqueName,
+    path: dest,
+    size: file.size,
+  };
+}
+
+export async function uploadModel(file: Express.Multer.File): Promise<{
+  filename: string;
+  path: string;
+  size: number;
+}> {
+  if (!file) throw new Error("No file uploaded");
+
+  if (cloudinary.config().cloud_name) {
+    const folder = process.env.CLOUDINARY_FOLDER_MODELS || "menufy/3d-models";
+    const publicId = `${folder}/${uuidv4()}`;
+    const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const result = await cloudinary.uploader.upload(dataUri, {
+      public_id: publicId,
+      resource_type: "raw",
+      overwrite: false,
+      folder,
+    });
+
+    logger.info(`Cloudinary model uploaded: ${result.public_id}`);
+    return {
+      filename: result.public_id,
+      path: result.secure_url,
+      size: file.size,
+    };
+  }
+
+  // Fallback: write to disk
+  const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
+  const dest = path.join(modelsDir, uniqueName);
+  fs.writeFileSync(dest, file.buffer);
+  logger.info(`Model written to disk fallback: ${dest}`);
+  return {
+    filename: uniqueName,
+    path: dest,
     size: file.size,
   };
 }
@@ -214,15 +260,27 @@ export function uploadImage(file: Express.Multer.File): {
 /**
  * Delete uploaded image
  */
-export function deleteImage(filename: string): boolean {
-  try {
-    const filePath = path.join(imagesDir, filename);
+export async function deleteImage(filename?: string): Promise<boolean> {
+  if (!filename) return false;
 
+  try {
+    // If filename looks like a Cloudinary public_id (contains '/'), attempt to delete
+    if (cloudinary.config().cloud_name && filename.includes("/")) {
+      try {
+        await cloudinary.uploader.destroy(filename, { resource_type: "image" });
+        logger.info(`Cloudinary image deleted: ${filename}`);
+        return true;
+      } catch (err) {
+        logger.warn(`Cloudinary delete failed for ${filename}: ${err}`);
+      }
+    }
+
+    // Fallback: delete local file
+    const filePath = path.join(imagesDir, filename);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      // Invalidate cache for this file
       fileCache.invalidate(filePath);
-      logger.info(`Image deleted: ${filename}`);
+      logger.info(`Image deleted from disk: ${filename}`);
       return true;
     }
 
@@ -251,15 +309,38 @@ export function deleteModel(filename: string): boolean {
   }
 }
 
+export async function deleteModelCloud(filename?: string): Promise<boolean> {
+  if (!filename) return false;
+  try {
+    if (cloudinary.config().cloud_name && filename.includes("/")) {
+      await cloudinary.uploader.destroy(filename, { resource_type: "raw" });
+      logger.info(`Cloudinary model deleted: ${filename}`);
+      return true;
+    }
+
+    return deleteModel(filename);
+  } catch (err) {
+    logger.error(`Failed to delete model: ${filename} - ${err}`);
+    return false;
+  }
+}
+
 /**
  * Get image URL
  */
 export function getImageUrl(filename: string): string {
+  // If Cloudinary configured and filename is a Cloudinary public id, build CDN url
+  if (cloudinary.config().cloud_name && filename.includes("/")) {
+    return cloudinary.url(filename, { secure: true });
+  }
   const baseUrl = resolvePublicBaseUrl();
   return `${baseUrl}/uploads/images/${filename}`;
 }
 
 export function getModelUrl(filename: string): string {
+  if (cloudinary.config().cloud_name && filename.includes("/")) {
+    return cloudinary.url(filename, { secure: true, resource_type: "raw" });
+  }
   const baseUrl = resolvePublicBaseUrl();
   return `${baseUrl}/uploads/3d-models/${filename}`;
 }
