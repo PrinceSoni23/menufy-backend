@@ -232,17 +232,32 @@ async function startServer() {
     logger.info("  Initializing AR Menu Platform API Server");
     logger.info("═══════════════════════════════════════════════════");
 
+    logger.info("Connecting to MongoDB...");
     await connectDB();
+    logger.info("MongoDB connection successful");
 
     // Start background jobs
     // DISABLED: 3D conversion feature removed - owners now upload 3D models directly
     // startConversionScheduler();
 
+    logger.info("Starting server on port " + PORT);
     const server = app.listen(PORT, "0.0.0.0", () => {
       logger.info(`✓ Server running on port ${PORT}`);
       logger.info(`✓ Environment: ${process.env.NODE_ENV}`);
       logger.info(`✓ API URL: ${process.env.API_URL}`);
       logger.info("═══════════════════════════════════════════════════");
+      logger.info("Server is now accepting requests");
+    });
+
+    // Handle server errors
+    server.on("error", err => {
+      logger.error("Server error:", err);
+      process.exit(1);
+    });
+
+    // Keep the process alive
+    server.on("listening", () => {
+      logger.info("Server event: listening confirmed");
     });
 
     // Graceful shutdown
@@ -266,6 +281,16 @@ async function startServer() {
     process.exit(1);
   }
 }
+
+// Global error handlers to catch unhandled rejections
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", error => {
+  logger.error("Uncaught Exception:", error);
+  process.exit(1);
+});
 
 startServer();
 
