@@ -4,20 +4,15 @@ import { AppError } from "../middleware/errorHandler";
 import { validateObjectId } from "../utils/validation";
 import { Restaurant } from "../models";
 
-/**
- * ENGAGEMENT-ONLY ANALYTICS CONTROLLER
- * All endpoints track menu engagement, NOT orders or revenue
- */
 export class AnalyticsController {
   /**
    * POST /api/analytics/track
-   * Track an analytics event (scan, view, ar_view, add_to_cart, etc)
+   * Track an analytics event
    */
   static async trackEvent(req: Request, res: Response, next: NextFunction) {
     try {
       const { restaurantId, eventType, deviceType, sessionId, menuItemId } =
         req.body;
-      const { deviceId } = req.body;
 
       if (!restaurantId || !eventType || !sessionId) {
         throw new AppError(
@@ -26,18 +21,45 @@ export class AnalyticsController {
         );
       }
 
+      // Validate ObjectId format for restaurantId and menuItemId
       validateObjectId(restaurantId);
-      if (menuItemId) validateObjectId(menuItemId);
+
+      if (menuItemId) {
+        validateObjectId(menuItemId);
+      }
+
+      // Accept legacy event names and normalize to Analytics schema values.
+      const eventTypeMap: Record<
+        string,
+        "scan" | "view" | "ar_view" | "share"
+      > = {
+        scan: "scan",
+        view: "view",
+        ar_view: "ar_view",
+        share: "share",
+        click: "view",
+        purchase: "share",
+        like: "share",
+        review: "share",
+      };
+
+      const normalizedEventType = eventTypeMap[String(eventType || "").trim()];
+      const validEventTypes = Object.keys(eventTypeMap);
+      if (!validEventTypes.includes(eventType)) {
+        throw new AppError(
+          400,
+          `eventType must be one of: ${validEventTypes.join(", ")}`,
+        );
+      }
 
       const userAgent = req.get("user-agent");
       const ipAddress = req.ip;
 
       const event = await AnalyticsService.trackEvent(
         restaurantId,
-        eventType,
+        normalizedEventType,
         deviceType || "Web",
         sessionId,
-        deviceId,
         menuItemId,
         userAgent,
         ipAddress,
@@ -46,7 +68,7 @@ export class AnalyticsController {
       res.status(201).json({
         success: true,
         message: "Event tracked",
-        data: event,
+        data: { event },
       });
     } catch (error) {
       next(error);
@@ -68,8 +90,10 @@ export class AnalyticsController {
       const { restaurantId } = req.params;
       const { days = 7 } = req.query;
 
+      // Validate ObjectId format
       validateObjectId(restaurantId);
 
+      // Validate days parameter
       const daysNum = parseInt(days as string) || 7;
       if (daysNum <= 0 || daysNum > 365) {
         throw new AppError(400, "Days must be between 1 and 365");
@@ -93,6 +117,7 @@ export class AnalyticsController {
 
   /**
    * GET /api/analytics/restaurant/:restaurantId/top-items
+   * Get top performing menu items
    */
   static async getTopMenuItems(
     req: Request,
@@ -105,13 +130,16 @@ export class AnalyticsController {
       const { restaurantId } = req.params;
       const { limit = 10 } = req.query;
 
+      // Validate ObjectId format
       validateObjectId(restaurantId);
 
+      // Validate limit parameter
       const limitNum = parseInt(limit as string) || 10;
       if (limitNum <= 0 || limitNum > 100) {
         throw new AppError(400, "Limit must be between 1 and 100");
       }
 
+      // Verify ownership
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
         throw new AppError(
@@ -137,6 +165,7 @@ export class AnalyticsController {
 
   /**
    * GET /api/analytics/restaurant/:restaurantId/devices
+   * Get device breakdown
    */
   static async getDeviceBreakdown(
     req: Request,
@@ -149,13 +178,16 @@ export class AnalyticsController {
       const { restaurantId } = req.params;
       const { days = 7 } = req.query;
 
+      // Validate ObjectId format
       validateObjectId(restaurantId);
 
+      // Validate days parameter
       const daysNum = parseInt(days as string) || 7;
       if (daysNum <= 0 || daysNum > 365) {
         throw new AppError(400, "Days must be between 1 and 365");
       }
 
+      // Verify ownership
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
         throw new AppError(
@@ -181,6 +213,7 @@ export class AnalyticsController {
 
   /**
    * GET /api/analytics/restaurant/:restaurantId/trends
+   * Get event trends
    */
   static async getEventTrends(req: Request, res: Response, next: NextFunction) {
     try {
@@ -189,13 +222,16 @@ export class AnalyticsController {
       const { restaurantId } = req.params;
       const { days = 30 } = req.query;
 
+      // Validate ObjectId format
       validateObjectId(restaurantId);
 
+      // Validate days parameter
       const daysNum = parseInt(days as string) || 30;
       if (daysNum <= 0 || daysNum > 365) {
         throw new AppError(400, "Days must be between 1 and 365");
       }
 
+      // Verify ownership
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
         throw new AppError(
@@ -221,6 +257,7 @@ export class AnalyticsController {
 
   /**
    * GET /api/analytics/restaurant/:restaurantId/comprehensive
+   * Get comprehensive analytics dashboard with all metrics
    */
   static async getComprehensiveAnalytics(
     req: Request,
@@ -232,8 +269,10 @@ export class AnalyticsController {
 
       const { restaurantId } = req.params;
 
+      // Validate ObjectId format
       validateObjectId(restaurantId);
 
+      // Verify ownership
       const restaurant = await Restaurant.findById(restaurantId);
       if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
         throw new AppError(
@@ -259,6 +298,7 @@ export class AnalyticsController {
 
   /**
    * GET /api/analytics/restaurant/:restaurantId/sales-heatmap
+   * Time-of-day and day-of-week sales heatmap
    */
   static async getSalesHeatmap(
     req: Request,
@@ -297,6 +337,7 @@ export class AnalyticsController {
 
   /**
    * GET /api/analytics/restaurant/:restaurantId/category-performance
+   * Category-level revenue, orders, AOV, and conversion.
    */
   static async getCategoryPerformance(
     req: Request,
@@ -333,10 +374,57 @@ export class AnalyticsController {
   }
 
   /**
-   * GET /api/analytics/restaurant/:restaurantId/item-popularity
-   * Get item popularity by cart additions
+   * GET /api/analytics/restaurant/:restaurantId/repeat-purchase-cohorts
+   * Get repeat purchase cohorts and retention metrics
    */
-  static async getItemPopularity(
+  static async getRepeatPurchaseCohorts(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      if (!req.user) throw new AppError(401, "Authentication required");
+
+      const { restaurantId } = req.params;
+      const { days = 30, timezone = "UTC" } = req.query;
+
+      validateObjectId(restaurantId);
+
+      const daysNum = parseInt(String(days), 10);
+      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
+        throw new AppError(400, "Days must be between 1 and 365");
+      }
+
+      const restaurant = await Restaurant.findById(restaurantId);
+      if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
+        throw new AppError(
+          403,
+          "You do not have permission to view these analytics",
+        );
+      }
+
+      const cohorts = await AnalyticsService.getRepeatPurchaseCohorts(
+        restaurantId,
+        req.user.userId,
+        daysNum,
+        String(timezone || "UTC"),
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Repeat purchase cohorts retrieved",
+        data: cohorts,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/analytics/restaurant/:restaurantId/lost-opportunities
+   * Get top lost opportunities (high-view, low-conversion items)
+   */
+  static async getTopLostOpportunities(
     req: Request,
     res: Response,
     next: NextFunction,
@@ -354,226 +442,24 @@ export class AnalyticsController {
         throw new AppError(400, "Days must be between 1 and 365");
       }
 
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
-
-      const popularity = await AnalyticsService.getItemPopularity(
-        restaurantId,
-        startDate,
-        endDate,
-      );
-
-      res.status(200).json({
-        success: true,
-        message: "Item popularity retrieved",
-        data: popularity,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * GET /api/analytics/restaurant/:restaurantId/engagement-funnel
-   * Get engagement funnel: QR scans → Menu opens → Item views → Cart adds
-   */
-  static async getEngagementFunnel(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ) {
-    try {
-      if (!req.user) throw new AppError(401, "Authentication required");
-
-      const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
-
-      validateObjectId(restaurantId);
-
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
+      const restaurant = await Restaurant.findById(restaurantId);
+      if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
+        throw new AppError(
+          403,
+          "You do not have permission to view these analytics",
+        );
       }
 
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
-
-      const funnel = await AnalyticsService.getEngagementFunnel(
+      const opportunities = await AnalyticsService.getTopLostOpportunities(
         restaurantId,
-        startDate,
-        endDate,
+        req.user.userId,
+        daysNum,
       );
 
       res.status(200).json({
         success: true,
-        message: "Engagement funnel retrieved",
-        data: funnel,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * GET /api/analytics/restaurant/:restaurantId/ar-usage
-   * Get AR feature adoption rate
-   */
-  static async getARUsage(req: Request, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) throw new AppError(401, "Authentication required");
-
-      const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
-
-      validateObjectId(restaurantId);
-
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
-
-      const arUsage = await AnalyticsService.getARUsage(
-        restaurantId,
-        startDate,
-        endDate,
-      );
-
-      res.status(200).json({
-        success: true,
-        message: "AR usage stats retrieved",
-        data: arUsage,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * GET /api/analytics/restaurant/:restaurantId/cart-abandonment
-   * Get cart abandonment metrics
-   */
-  static async getCartAbandonment(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ) {
-    try {
-      if (!req.user) throw new AppError(401, "Authentication required");
-
-      const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
-
-      validateObjectId(restaurantId);
-
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
-
-      const abandonment = await AnalyticsService.getCartAbandonment(
-        restaurantId,
-        startDate,
-        endDate,
-      );
-
-      res.status(200).json({
-        success: true,
-        message: "Cart abandonment metrics retrieved",
-        data: abandonment,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * GET /api/analytics/restaurant/:restaurantId/session-duration
-   * Get session duration and engagement patterns
-   */
-  static async getSessionDuration(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ) {
-    try {
-      if (!req.user) throw new AppError(401, "Authentication required");
-
-      const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
-
-      validateObjectId(restaurantId);
-
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
-
-      const duration = await AnalyticsService.getSessionDuration(
-        restaurantId,
-        startDate,
-        endDate,
-      );
-
-      res.status(200).json({
-        success: true,
-        message: "Session duration metrics retrieved",
-        data: duration,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * GET /api/analytics/restaurant/:restaurantId/selection-patterns
-   * Get popular item combinations
-   */
-  static async getSelectionPatterns(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ) {
-    try {
-      if (!req.user) throw new AppError(401, "Authentication required");
-
-      const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
-
-      validateObjectId(restaurantId);
-
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
-
-      const patterns = await AnalyticsService.getSelectionPatterns(
-        restaurantId,
-        startDate,
-        endDate,
-      );
-
-      res.status(200).json({
-        success: true,
-        message: "Selection patterns retrieved",
-        data: patterns,
+        message: "Lost opportunities retrieved",
+        data: opportunities,
       });
     } catch (error) {
       next(error);

@@ -54,15 +54,39 @@ app.use(
 );
 
 // ==================== RATE LIMITING ====================
+const authLimiter = rateLimit({
+  windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS || "20"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many login attempts, please try again later.",
+});
+
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000"),
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || "100"),
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests from this IP, please try again later.",
+  // In development or when requests originate from localhost, skip rate limiting
+  skip: (req: Request) => {
+    try {
+      if (process.env.NODE_ENV !== "production") return true;
+      const host = (req.get("host") || "").toLowerCase();
+      if (host.includes("localhost")) return true;
+      const ip = req.ip || "";
+      if (ip === "::1" || ip === "127.0.0.1") return true;
+      // Always skip auth routes handling separately via authLimiter
+      if (req.path.startsWith("/auth/")) return true;
+      return false;
+    } catch (e) {
+      return false;
+    }
+  },
 });
 
 app.use("/api/", limiter);
+app.use("/api/auth", authLimiter);
 
 // ==================== BODY PARSING ====================
 app.use(express.json({ limit: "50mb" }));
@@ -277,21 +301,23 @@ async function startServer() {
       });
     });
   } catch (error) {
-    logger.error(`Failed to start server: ${error}`);
+    logger.error("Failed to start server", { error: String(error) });
     process.exit(1);
   }
 }
 
 // Global error handlers to catch unhandled rejections
 process.on("unhandledRejection", (reason, promise) => {
-  logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+  logger.error("Unhandled Rejection at promise", { reason: String(reason) });
 });
 
 process.on("uncaughtException", error => {
-  logger.error("Uncaught Exception:", error);
+  logger.error("Uncaught Exception", {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   process.exit(1);
 });
-
-startServer();
+void startServer();
 
 export default app;

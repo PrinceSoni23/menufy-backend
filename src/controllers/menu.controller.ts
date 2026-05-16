@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { MenuService } from "../services/menu.service";
+import { AnalyticsService } from "../services/analytics.service";
 import { AppError } from "../middleware/errorHandler";
 import { validateObjectId } from "../utils/validation";
 import { MenuItem, Restaurant } from "../models";
@@ -458,8 +459,22 @@ export class MenuController {
   ) {
     try {
       const { id } = req.params;
+      const { sessionId, deviceType } = req.body || {};
 
       const menuItem = await MenuService.incrementViewCount(id);
+
+      if (sessionId) {
+        await AnalyticsService.trackEvent(
+          String(menuItem.restaurantId),
+          "view",
+          deviceType || "Web",
+          String(sessionId),
+          req.body?.deviceId,
+          id,
+          req.get("user-agent") || undefined,
+          req.ip,
+        );
+      }
 
       res.status(200).json({
         success: true,
@@ -478,8 +493,22 @@ export class MenuController {
   static async trackARView(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      const { sessionId, deviceType } = req.body || {};
 
       const menuItem = await MenuService.incrementARViewCount(id);
+
+      if (sessionId) {
+        await AnalyticsService.trackEvent(
+          String(menuItem.restaurantId),
+          "ar_view",
+          deviceType || "Web",
+          String(sessionId),
+          req.body?.deviceId,
+          id,
+          req.get("user-agent") || undefined,
+          req.ip,
+        );
+      }
 
       res.status(200).json({
         success: true,

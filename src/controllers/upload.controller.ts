@@ -189,7 +189,7 @@ export class UploadController {
 
       const menuItem = await MenuItem.findById(menuItemId);
       if (!menuItem) {
-        deleteImage(req.file.filename);
+        await deleteImage(req.file.filename);
         throw new AppError(404, "Menu item not found");
       }
 

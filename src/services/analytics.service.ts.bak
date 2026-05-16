@@ -1,0 +1,1413 @@
+import {
+  Analytics,
+  MenuItem,
+  Restaurant,
+  Order,
+  Review,
+  QRCode,
+} from "../models";
+import { AppError } from "../middleware/errorHandler";
+import logger from "../utils/logger";
+import mongoose from "mongoose";
+
+export class AnalyticsService {
+  private static readonly HEATMAP_DAYS = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+
+  private static validateTimezone(timezone: string): string {
+    try {
+      Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+      return timezone;
+    } catch {
+      throw new AppError(400, "Invalid timezone provided");
+    }
+  }
+
+  /**
+   * Track an event (view, click, AR view, share, scan)
+   */
+  static async trackEvent(
+    restaurantId: string,
+    eventType: "scan" | "view" | "ar_view" | "share",
+    deviceType: "iOS" | "Android" | "Web" = "Web",
+    sessionId: string,
+    menuItemId?: string,
+    userAgent?: string,
+    ipAddress?: string,
+  ): Promise<any> {
+    try {
+      const analytics = new Analytics({
+        restaurantId,
+        menuItemId,
+        eventType,
+        deviceType,
+        sessionId,
+        userAgent: userAgent || "",
+        ipAddress: ipAddress || "",
+        timestamp: new Date(),
+      });
+
+      await analytics.save();
+
+      logger.info(
+        `Analytics event tracked: ${eventType} for restaurant: ${restaurantId}`,
+      );
+
+      return analytics.toObject();
+    } catch (error) {
+      logger.error(`Failed to track analytics: ${error}`);
+      throw new AppError(500, "Failed to track event");
+    }
+  }
+
+  /**
+   * Get comprehensive restaurant analytics dashboard
+   */
+  static async getComprehensiveAnalytics(
+    restaurantId: string,
+    ownerId: string,
+  ): Promise<any> {
+    // Verify ownership
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+      throw new AppError(
+        403,
+        "You do not have permission to view these analytics",
+      );
+    }
+
+    // Get this month's start and end dates
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    // Fetch all relevant data
+    const [
+      qrScans,
+      dishViews,
+      arModelViews,
+      orders,
+      reviews,
+      allAnalytics,
+      uniqueSessions,
+      qrCodeDocs,
+      menuItems,
+    ] = await Promise.all([
+      // 1. QR Scans this month
+      Analytics.countDocuments({
+        restaurantId,
+        eventType: "scan",
+        timestamp: { $gte: monthStart, $lte: monthEnd },
+      }),
+
+      // 2. Total dishes visited (unique menu items viewed)
+      Analytics.distinct("menuItemId", {
+        restaurantId,
+        eventType: { $in: ["view", "ar_view"] },
+        timestamp: { $gte: monthStart, $lte: monthEnd },
+      }),
+
+      // 3. 3D model views
+      Analytics.countDocuments({
+        restaurantId,
+        eventType: "ar_view",
+        timestamp: { $gte: monthStart, $lte: monthEnd },
+      }),
+
+      // 4. Orders this month
+      Order.find({
+        restaurantId,
+        createdAt: { $gte: monthStart, $lte: monthEnd },
+        status: "completed",
+      }),
+
+      // 5. Reviews/ratings
+      Review.find({
+        restaurantId,
+        createdAt: { $gte: monthStart, $lte: monthEnd },
+      }),
+
+      // 6. All analytics for conversion rate calculation
+      Analytics.find({
+        restaurantId,
+        timestamp: { $gte: monthStart, $lte: monthEnd },
+      }),
+
+      // 7. Unique sessions (for conversion rate)
+      Analytics.distinct("sessionId", {
+        restaurantId,
+        timestamp: { $gte: monthStart, $lte: monthEnd },
+      }),
+
+      // 8. QR code lifetime counters (fallback when event logs are sparse)
+      QRCode.find({ restaurantId }).select("totalScans").lean(),
+
+      // 9. Menu item counters (fallback for views/arViews and popularity)
+      MenuItem.find({ restaurantId })
+        .select("_id name views arViews clicks")
+        .lean(),
+    ]);
+
+    const qrCodeFallbackScans = qrCodeDocs.reduce(
+      (sum, qr) => sum + (qr.totalScans || 0),
+      0,
+    );
+    const menuTotalViews = menuItems.reduce(
+      (sum, item) => sum + (item.views || 0),
+      0,
+    );
+    const menuTotalArViews = menuItems.reduce(
+      (sum, item) => sum + (item.arViews || 0),
+      0,
+    );
+    const distinctVisitedFallback = menuItems.filter(
+      item => (item.views || 0) > 0 || (item.arViews || 0) > 0,
+    ).length;
+
+    // Calculate metrics (event logs first, then fallback to model counters)
+    const totalQRScans =
+      qrScans > 0 ? qrScans : qrCodeFallbackScans || restaurant.totalScans || 0;
+    const totalDishesVisited =
+      dishViews.length > 0 ? dishViews.length : distinctVisitedFallback;
+    const total3DModelViews =
+      arModelViews > 0 ? arModelViews : menuTotalArViews;
+    const totalOrders = orders.length;
+
+    // Get most and least ordered dishes
+    const dishOrderCounts: { [key: string]: number } = {};
+    orders.forEach(order => {
+      const itemId = order.menuItemId.toString();
+      dishOrderCounts[itemId] = (dishOrderCounts[itemId] || 0) + order.quantity;
+    });
+
+    const dishData = await MenuItem.find({ restaurantId }).select(
+      "_id name price",
+    );
+    const dishMap = new Map(dishData.map(d => [d._id.toString(), d]));
+
+    let sortedDishes = Object.entries(dishOrderCounts)
+      .map(([itemId, count]) => ({
+        itemId,
+        name: dishMap.get(itemId)?.name || "Unknown",
+        orders: count,
+      }))
+      .sort((a, b) => b.orders - a.orders);
+
+    // If there are no order records, fallback to engagement-based popularity.
+    if (sortedDishes.length === 0) {
+      sortedDishes = menuItems
+        .map(item => ({
+          itemId: String(item._id),
+          name: item.name,
+          orders: (item.clicks || 0) + (item.views || 0),
+        }))
+        .sort((a, b) => b.orders - a.orders);
+    }
+
+    const mostPopularDish = sortedDishes.length > 0 ? sortedDishes[0] : null;
+    const leastPopularDish =
+      sortedDishes.length > 0 ? sortedDishes[sortedDishes.length - 1] : null;
+
+    // Customer conversion rate (scans → orders)
+    const uniqueScans = Analytics.countDocuments({
+      restaurantId,
+      eventType: "scan",
+      timestamp: { $gte: monthStart, $lte: monthEnd },
+    });
+
+    const scanBase = (await uniqueScans) > 0 ? await uniqueScans : totalQRScans;
+
+    const conversionRate =
+      scanBase > 0 ? ((totalOrders / scanBase) * 100).toFixed(2) : 0;
+
+    // New vs Repeated customers
+    const customerEmails = new Set<string>();
+    const previousMonthStart = new Date(
+      monthStart.getFullYear(),
+      monthStart.getMonth() - 1,
+      1,
+    );
+    const previousMonthEnd = new Date(
+      monthStart.getFullYear(),
+      monthStart.getMonth(),
+      0,
+    );
+
+    const previousMonthCustomers = await Order.find({
+      restaurantId,
+      createdAt: { $gte: previousMonthStart, $lte: previousMonthEnd },
+      status: "completed",
+    }).select("customerEmail");
+
+    const previousEmails = new Set(
+      previousMonthCustomers
+        .map(o => o.customerEmail)
+        .filter(Boolean)
+        .map(e => e!.toLowerCase()),
+    );
+
+    orders.forEach(order => {
+      if (order.customerEmail) {
+        customerEmails.add(order.customerEmail.toLowerCase());
+      }
+    });
+
+    const newCustomers = Array.from(customerEmails).filter(
+      email => !previousEmails.has(email),
+    ).length;
+    const repeatedCustomers = Array.from(customerEmails).filter(email =>
+      previousEmails.has(email),
+    ).length;
+
+    // Estimated sales
+    const estimatedSales = orders.reduce(
+      (sum, order) => sum + order.totalPrice,
+      0,
+    );
+
+    // Daily trends
+    let dailyTrends = await this.getDailyTrends(restaurantId, monthStart);
+    if (
+      dailyTrends.length === 0 &&
+      (totalQRScans > 0 || menuTotalViews > 0 || total3DModelViews > 0)
+    ) {
+      const todayKey = new Date().toISOString().split("T")[0];
+      dailyTrends = [
+        {
+          _id: { date: todayKey },
+          scans: totalQRScans,
+          views: menuTotalViews,
+          arViews: total3DModelViews,
+          shares: 0,
+          total: totalQRScans + menuTotalViews + total3DModelViews,
+        },
+      ];
+    }
+
+    // Top menu items by views
+    const topItems = await this.getTopMenuItems(restaurantId, 10);
+
+    // Device breakdown
+    const deviceStats = {
+      iOS: 0,
+      Android: 0,
+      Web: 0,
+    };
+
+    allAnalytics.forEach(event => {
+      deviceStats[event.deviceType as keyof typeof deviceStats]++;
+    });
+
+    return {
+      period: {
+        month: monthStart.toLocaleString("default", { month: "long" }),
+        year: monthStart.getFullYear(),
+        startDate: monthStart,
+        endDate: monthEnd,
+      },
+      summary: {
+        totalQRScans,
+        totalDishesVisited,
+        total3DModelViews,
+        totalOrders,
+        estimatedSales: estimatedSales.toFixed(2),
+        avgOrderValue:
+          totalOrders > 0 ? (estimatedSales / totalOrders).toFixed(2) : 0,
+      },
+      popularity: {
+        mostPopularDish,
+        leastPopularDish,
+        topDishes: sortedDishes.slice(0, 5),
+        bottomDishes: sortedDishes.slice(-5),
+      },
+      customers: {
+        newCustomers,
+        repeatedCustomers,
+        totalUniqueCustomers: customerEmails.size,
+        conversionRate: parseFloat(conversionRate as string),
+        uniqueSessionsThisMonth: uniqueSessions.length,
+      },
+      devices: deviceStats,
+      trends: dailyTrends,
+      topItems,
+      averageRating:
+        reviews.length > 0
+          ? (
+              reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+            ).toFixed(2)
+          : null,
+    };
+  }
+
+  /**
+   * Time-of-day and day-of-week sales heatmap
+   */
+  static async getSalesHeatmap(
+    restaurantId: string,
+    ownerId: string,
+    days: number = 30,
+    timezone: string = "UTC",
+  ): Promise<any> {
+    const restaurant = await Restaurant.findById(restaurantId).select("ownerId");
+    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+      throw new AppError(
+        403,
+        "You do not have permission to view these analytics",
+      );
+    }
+
+    const safeTimezone = this.validateTimezone(timezone);
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days + 1);
+    startDate.setHours(0, 0, 0, 0);
+
+    const rows = await Order.aggregate([
+      {
+        $match: {
+          restaurantId: new mongoose.Types.ObjectId(restaurantId),
+          status: "completed",
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            dayOfWeek: {
+              $dayOfWeek: { date: "$createdAt", timezone: safeTimezone },
+            },
+            hourOfDay: {
+              $hour: { date: "$createdAt", timezone: safeTimezone },
+            },
+          },
+          orders: { $sum: 1 },
+          revenue: { $sum: "$totalPrice" },
+          quantity: { $sum: "$quantity" },
+        },
+      },
+      {
+        $sort: { "_id.dayOfWeek": 1, "_id.hourOfDay": 1 },
+      },
+    ]);
+
+    const matrix = this.HEATMAP_DAYS.map(day => ({
+      day,
+      cells: Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        hourLabel: `${String(hour).padStart(2, "0")}:00`,
+        orders: 0,
+        revenue: 0,
+        quantity: 0,
+      })),
+      totalOrders: 0,
+      totalRevenue: 0,
+    }));
+
+    const hourTotals = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      hourLabel: `${String(hour).padStart(2, "0")}:00`,
+      orders: 0,
+      revenue: 0,
+      quantity: 0,
+    }));
+
+    let totalOrders = 0;
+    let totalRevenue = 0;
+    let maxCellRevenue = 0;
+    let maxCellOrders = 0;
+
+    rows.forEach(row => {
+      const dayIdx = Number(row._id.dayOfWeek) - 1; // Mongo: Sunday=1
+      const hour = Number(row._id.hourOfDay);
+      if (dayIdx < 0 || dayIdx > 6 || hour < 0 || hour > 23) return;
+
+      const orders = Number(row.orders || 0);
+      const revenue = Number(row.revenue || 0);
+      const quantity = Number(row.quantity || 0);
+
+      matrix[dayIdx].cells[hour] = {
+        hour,
+        hourLabel: `${String(hour).padStart(2, "0")}:00`,
+        orders,
+        revenue,
+        quantity,
+      };
+
+      matrix[dayIdx].totalOrders += orders;
+      matrix[dayIdx].totalRevenue += revenue;
+
+      hourTotals[hour].orders += orders;
+      hourTotals[hour].revenue += revenue;
+      hourTotals[hour].quantity += quantity;
+
+      totalOrders += orders;
+      totalRevenue += revenue;
+
+      if (revenue > maxCellRevenue) maxCellRevenue = revenue;
+      if (orders > maxCellOrders) maxCellOrders = orders;
+    });
+
+    const peakHour = hourTotals.reduce(
+      (best, curr) => (curr.revenue > best.revenue ? curr : best),
+      hourTotals[0],
+    );
+
+    const peakDay = matrix.reduce(
+      (best, curr) => (curr.totalRevenue > best.totalRevenue ? curr : best),
+      matrix[0],
+    );
+
+    const populatedCells = matrix.reduce(
+      (sum, row) => sum + row.cells.filter(c => c.orders > 0).length,
+      0,
+    );
+
+    return {
+      meta: {
+        timezone: safeTimezone,
+        rangeDays: days,
+        startDate,
+        endDate,
+      },
+      summary: {
+        totalOrders,
+        totalRevenue: Number(totalRevenue.toFixed(2)),
+        averageOrderValue:
+          totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : 0,
+        dataCoveragePct: Number(((populatedCells / (7 * 24)) * 100).toFixed(2)),
+      },
+      peaks: {
+        hour: {
+          ...peakHour,
+        },
+        day: {
+          day: peakDay.day,
+          totalOrders: peakDay.totalOrders,
+          totalRevenue: Number(peakDay.totalRevenue.toFixed(2)),
+        },
+      },
+      max: {
+        cellRevenue: Number(maxCellRevenue.toFixed(2)),
+        cellOrders: maxCellOrders,
+      },
+      dayOrder: this.HEATMAP_DAYS,
+      hourOrder: hourTotals.map(h => ({ hour: h.hour, hourLabel: h.hourLabel })),
+      heatmap: matrix,
+      hourTotals: hourTotals.map(h => ({
+        ...h,
+        revenue: Number(h.revenue.toFixed(2)),
+      })),
+    };
+  }
+
+  /**
+   * Category performance for revenue, orders, AOV, and conversion.
+   */
+  static async getCategoryPerformance(
+    restaurantId: string,
+    ownerId: string,
+    days: number = 30,
+  ): Promise<any> {
+    const restaurant = await Restaurant.findById(restaurantId).select("ownerId");
+    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+      throw new AppError(
+        403,
+        "You do not have permission to view these analytics",
+      );
+    }
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days + 1);
+    startDate.setHours(0, 0, 0, 0);
+
+    const menuItems = await MenuItem.find({ restaurantId })
+      .select("_id name category views arViews")
+      .lean();
+
+    const itemMeta = new Map(
+      menuItems.map(item => [String(item._id), item]),
+    );
+
+    const [ordersByItem, viewsByItem] = await Promise.all([
+      Order.aggregate([
+        {
+          $match: {
+            restaurantId: new mongoose.Types.ObjectId(restaurantId),
+            status: "completed",
+            createdAt: { $gte: startDate, $lte: endDate },
+          },
+        },
+        {
+          $group: {
+            _id: "$menuItemId",
+            orders: { $sum: 1 },
+            quantity: { $sum: "$quantity" },
+            revenue: { $sum: "$totalPrice" },
+          },
+        },
+      ]),
+      Analytics.aggregate([
+        {
+          $match: {
+            restaurantId: new mongoose.Types.ObjectId(restaurantId),
+            eventType: { $in: ["view", "ar_view"] },
+            timestamp: { $gte: startDate, $lte: endDate },
+            menuItemId: { $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: "$menuItemId",
+            views: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    const categoryMap = new Map<
+      string,
+      {
+        category: string;
+        orders: number;
+        quantity: number;
+        revenue: number;
+        views: number;
+        menuItemCount: number;
+      }
+    >();
+
+    const ensureCategory = (categoryRaw?: string) => {
+      const category = (categoryRaw || "Uncategorized").trim() || "Uncategorized";
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, {
+          category,
+          orders: 0,
+          quantity: 0,
+          revenue: 0,
+          views: 0,
+          menuItemCount: 0,
+        });
+      }
+      return categoryMap.get(category)!;
+    };
+
+    // Seed categories from current menu so owners can see zero-performing categories.
+    menuItems.forEach(item => {
+      const metric = ensureCategory(item.category);
+      metric.menuItemCount += 1;
+    });
+
+    ordersByItem.forEach(row => {
+      const itemId = String(row._id);
+      const meta = itemMeta.get(itemId);
+      const metric = ensureCategory(meta?.category);
+      metric.orders += Number(row.orders || 0);
+      metric.quantity += Number(row.quantity || 0);
+      metric.revenue += Number(row.revenue || 0);
+    });
+
+    viewsByItem.forEach(row => {
+      const itemId = String(row._id);
+      const meta = itemMeta.get(itemId);
+      const metric = ensureCategory(meta?.category);
+      metric.views += Number(row.views || 0);
+    });
+
+    const totalTrackedViews = Array.from(categoryMap.values()).reduce(
+      (sum, item) => sum + item.views,
+      0,
+    );
+
+    let viewSource: "events" | "menu-item-counters" = "events";
+    if (totalTrackedViews === 0) {
+      viewSource = "menu-item-counters";
+      menuItems.forEach(item => {
+        const metric = ensureCategory(item.category);
+        metric.views += Number(item.views || 0) + Number(item.arViews || 0);
+      });
+    }
+
+    const categories = Array.from(categoryMap.values())
+      .map(metric => {
+        const aov = metric.orders > 0 ? metric.revenue / metric.orders : 0;
+        const conversionRate =
+          metric.views > 0 ? (metric.orders / metric.views) * 100 : 0;
+
+        return {
+          category: metric.category,
+          menuItemCount: metric.menuItemCount,
+          orders: metric.orders,
+          quantity: metric.quantity,
+          views: metric.views,
+          revenue: Number(metric.revenue.toFixed(2)),
+          averageOrderValue: Number(aov.toFixed(2)),
+          conversionRate: Number(conversionRate.toFixed(2)),
+        };
+      })
+      .sort((a, b) => b.revenue - a.revenue)
+      .map((entry, idx) => ({ rank: idx + 1, ...entry }));
+
+    const totals = categories.reduce(
+      (acc, item) => {
+        acc.revenue += item.revenue;
+        acc.orders += item.orders;
+        acc.views += item.views;
+        acc.quantity += item.quantity;
+        acc.categories += 1;
+        return acc;
+      },
+      { revenue: 0, orders: 0, views: 0, quantity: 0, categories: 0 },
+    );
+
+    const topRevenueCategory = categories[0] || null;
+    const bestConversionCategory =
+      categories
+        .filter(c => c.views > 0)
+        .sort((a, b) => b.conversionRate - a.conversionRate)[0] || null;
+
+    const weakestCategory =
+      categories
+        .filter(c => c.views > 0)
+        .sort((a, b) => a.conversionRate - b.conversionRate)[0] || null;
+
+    return {
+      meta: {
+        rangeDays: days,
+        startDate,
+        endDate,
+        viewSource,
+      },
+      summary: {
+        totalRevenue: Number(totals.revenue.toFixed(2)),
+        totalOrders: totals.orders,
+        totalViews: totals.views,
+        totalQuantity: totals.quantity,
+        categoryCount: totals.categories,
+        averageOrderValue:
+          totals.orders > 0
+            ? Number((totals.revenue / totals.orders).toFixed(2))
+            : 0,
+        overallConversionRate:
+          totals.views > 0
+            ? Number(((totals.orders / totals.views) * 100).toFixed(2))
+            : 0,
+      },
+      insights: {
+        topRevenueCategory,
+        bestConversionCategory,
+        weakestCategory,
+      },
+      categories,
+    };
+  }
+
+  /**
+   * Get daily trends for a month
+   */
+  private static async getDailyTrends(
+    restaurantId: string,
+    monthStart: Date,
+  ): Promise<any[]> {
+    const monthEnd = new Date(
+      monthStart.getFullYear(),
+      monthStart.getMonth() + 1,
+      0,
+    );
+
+    return await Analytics.aggregate([
+      {
+        $match: {
+          restaurantId: new mongoose.Types.ObjectId(restaurantId),
+          timestamp: { $gte: monthStart, $lte: monthEnd },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            date: {
+              $dateToString: { format: "%Y-%m-%d", date: "$timestamp" },
+            },
+          },
+          scans: {
+            $sum: {
+              $cond: [{ $eq: ["$eventType", "scan"] }, 1, 0],
+            },
+          },
+          views: {
+            $sum: {
+              $cond: [{ $eq: ["$eventType", "view"] }, 1, 0],
+            },
+          },
+          arViews: {
+            $sum: {
+              $cond: [{ $eq: ["$eventType", "ar_view"] }, 1, 0],
+            },
+          },
+          shares: {
+            $sum: {
+              $cond: [{ $eq: ["$eventType", "share"] }, 1, 0],
+            },
+          },
+          total: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.date": 1 },
+      },
+    ]);
+  }
+
+  /**
+   * Get restaurant analytics dashboard (original)
+   */
+  static async getRestaurantAnalytics(
+    restaurantId: string,
+    ownerId: string,
+    days: number = 7,
+  ): Promise<any> {
+    // Verify ownership
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+      throw new AppError(
+        403,
+        "You do not have permission to view these analytics",
+      );
+    }
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const events = await Analytics.find({
+      restaurantId,
+      timestamp: { $gte: startDate },
+    });
+
+    // Aggregate by event type
+    const eventTypeStats = {
+      scan: 0,
+      view: 0,
+      ar_view: 0,
+      share: 0,
+    };
+
+    const deviceStats = {
+      iOS: 0,
+      Android: 0,
+      Web: 0,
+    };
+
+    const dailyStats: { [key: string]: number } = {};
+
+    events.forEach(event => {
+      eventTypeStats[event.eventType as keyof typeof eventTypeStats]++;
+      deviceStats[event.deviceType as keyof typeof deviceStats]++;
+
+      const dateKey = event.timestamp.toISOString().split("T")[0];
+      dailyStats[dateKey] = (dailyStats[dateKey] || 0) + 1;
+    });
+
+    return {
+      restaurantId,
+      period: `Last ${days} days`,
+      totalEvents: events.length,
+      eventTypeBreakdown: eventTypeStats,
+      deviceBreakdown: deviceStats,
+      dailyBreakdown: dailyStats,
+      menuItemStats: await this.getMenuItemAnalytics(restaurantId, days),
+    };
+  }
+
+  /**
+   * Get individual menu item analytics
+   */
+  static async getMenuItemAnalytics(
+    restaurantId: string,
+    days: number = 7,
+  ): Promise<any> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const menuItems = await MenuItem.find({ restaurantId });
+
+    const itemAnalytics = await Promise.all(
+      menuItems.map(async item => {
+        const events = await Analytics.find({
+          menuItemId: item._id,
+          timestamp: { $gte: startDate },
+        });
+
+        return {
+          menuItemId: item._id,
+          name: item.name,
+          views: events.filter(e => e.eventType === "view").length,
+          arViews: events.filter(e => e.eventType === "ar_view").length,
+          shares: events.filter(e => e.eventType === "share").length,
+          clicks: item.clicks,
+          totalEvents: events.length,
+        };
+      }),
+    );
+
+    return itemAnalytics.sort((a, b) => b.totalEvents - a.totalEvents);
+  }
+
+  /**
+   * Get top performing menu items
+   */
+  static async getTopMenuItems(
+    restaurantId: string,
+    limit: number = 10,
+  ): Promise<any> {
+    const menuItems = await MenuItem.find({ restaurantId })
+      .sort({ views: -1, arViews: -1, clicks: -1 })
+      .limit(limit);
+
+    return menuItems.map(item => ({
+      menuItemId: item._id,
+      name: item.name,
+      views: item.views,
+      arViews: item.arViews,
+      clicks: item.clicks,
+      avgTimeViewed: item.avgTimeViewed,
+    }));
+  }
+
+  /**
+   * Get device breakdown
+   */
+  static async getDeviceBreakdown(
+    restaurantId: string,
+    days: number = 7,
+  ): Promise<any> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const events = await Analytics.find({
+      restaurantId,
+      timestamp: { $gte: startDate },
+    });
+
+    const breakdown = {
+      iOS: 0,
+      Android: 0,
+      Web: 0,
+    };
+
+    events.forEach(event => {
+      breakdown[event.deviceType as keyof typeof breakdown]++;
+    });
+
+    const total = events.length;
+
+    return {
+      breakdown,
+      percentages: {
+        iOS: total > 0 ? ((breakdown.iOS / total) * 100).toFixed(2) : 0,
+        Android: total > 0 ? ((breakdown.Android / total) * 100).toFixed(2) : 0,
+        Web: total > 0 ? ((breakdown.Web / total) * 100).toFixed(2) : 0,
+      },
+    };
+  }
+
+  /**
+   * Get event trends
+   */
+  static async getEventTrends(
+    restaurantId: string,
+    days: number = 30,
+  ): Promise<any> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const events = await Analytics.aggregate([
+      {
+        $match: {
+          restaurantId: new mongoose.Types.ObjectId(restaurantId),
+          timestamp: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            date: {
+              $dateToString: { format: "%Y-%m-%d", date: "$timestamp" },
+            },
+            eventType: "$eventType",
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.date": 1 },
+      },
+    ]);
+
+    return events;
+  }
+
+  /**
+   * Clear analytics (for testing)
+   */
+  static async clearAnalytics(restaurantId: string): Promise<any> {
+    const result = await Analytics.deleteMany({ restaurantId });
+
+    logger.info(`Analytics cleared for restaurant: ${restaurantId}`);
+
+    return result;
+  }
+
+  /**
+   * Get repeat purchase cohorts and retention metrics
+   */
+  static async getRepeatPurchaseCohorts(
+    restaurantId: string,
+    ownerId: string,
+    days: number = 30,
+    timezone: string = "UTC",
+  ): Promise<any> {
+    const restaurant = await Restaurant.findById(restaurantId).select("ownerId");
+    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+      throw new AppError(
+        403,
+        "You do not have permission to view these analytics",
+      );
+    }
+
+    const safeTimezone = this.validateTimezone(timezone);
+
+    if (days <= 0 || days > 365) {
+      throw new AppError(400, "Days must be between 1 and 365");
+    }
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days + 1);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Fetch all completed orders in range
+    const orders = await Order.find({
+      restaurantId,
+      status: "completed",
+      createdAt: { $gte: startDate, $lte: endDate },
+    }).select("userId sessionId totalPrice createdAt").lean();
+
+    if (orders.length === 0) {
+      return {
+        meta: {
+          timezone: safeTimezone,
+          rangeDays: days,
+          startDate,
+          endDate,
+        },
+        summary: {
+          totalCustomers: 0,
+          repeatCustomers: 0,
+          repeatRate: 0,
+          avgRepeatCount: 0,
+          retention7d: 0,
+          retention14d: 0,
+          retention30d: 0,
+        },
+        cohorts: [],
+        timeline: [],
+      };
+    }
+
+    // Group orders by customer (userId for authenticated, sessionId for anonymous)
+    const customerOrders: { [key: string]: any[] } = {};
+    orders.forEach(order => {
+      const customerId = order.userId ? order.userId.toString() : `session-${order.sessionId}`;
+      if (!customerOrders[customerId]) {
+        customerOrders[customerId] = [];
+      }
+      customerOrders[customerId].push(order);
+    });
+
+    const totalCustomers = Object.keys(customerOrders).length;
+    const repeatCustomers = Object.values(customerOrders).filter(
+      orders => orders.length > 1,
+    ).length;
+    const repeatRate =
+      totalCustomers > 0
+        ? Number(((repeatCustomers / totalCustomers) * 100).toFixed(1))
+        : 0;
+
+    const repeatCounts = Object.values(customerOrders).map(
+      orders => orders.length,
+    );
+    const avgRepeatCount =
+      repeatCounts.length > 0
+        ? Number(
+            (
+              repeatCounts.reduce((a, b) => a + b) / repeatCounts.length
+            ).toFixed(2),
+          )
+        : 0;
+
+    // Build cohorts by week
+    const cohorts: any[] = [];
+    for (let i = 0; i < days; i += 7) {
+      const cohortStart = new Date();
+      cohortStart.setDate(endDate.getDate() - days + i + 1);
+      cohortStart.setHours(0, 0, 0, 0);
+
+      const cohortEnd = new Date(cohortStart);
+      cohortEnd.setDate(cohortEnd.getDate() + 7);
+
+      // Get all customers whose first purchase was in this cohort
+      const cohortCustomers = Object.entries(customerOrders)
+        .filter(([, custOrders]) => {
+          const firstOrder = custOrders.sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          )[0];
+          return (
+            firstOrder.createdAt >= cohortStart &&
+            firstOrder.createdAt < cohortEnd
+          );
+        })
+        .map(([customerId, custOrders]) => ({
+          customerId,
+          orders: custOrders.length,
+          firstOrderDate: new Date(
+            custOrders.sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            )[0].createdAt,
+          ),
+        }));
+
+      if (cohortCustomers.length > 0) {
+        const repeatInCohort = cohortCustomers.filter(
+          c => c.orders > 1,
+        ).length;
+        cohorts.push({
+          cohortWeek: cohortStart.toISOString().split("T")[0],
+          newCustomers: cohortCustomers.length,
+          repeatCustomers: repeatInCohort,
+          retentionRate: Number(
+            ((repeatInCohort / cohortCustomers.length) * 100).toFixed(1),
+          ),
+          avgOrdersPerCustomer: Number(
+            (
+              cohortCustomers.reduce((sum, c) => sum + c.orders, 0) /
+              cohortCustomers.length
+            ).toFixed(2),
+          ),
+        });
+      }
+    }
+
+    // Calculate retention windows
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const retention7d =
+      calculateRetention(customerOrders, sevenDaysAgo, startDate);
+    const retention14d =
+      calculateRetention(customerOrders, fourteenDaysAgo, startDate);
+    const retention30d =
+      calculateRetention(customerOrders, thirtyDaysAgo, startDate);
+
+    // Build timeline of repeat purchase rate over time
+    const timeline: any[] = [];
+    const dailyData: { [key: string]: any } = {};
+    orders.forEach(order => {
+      const dateStr = order.createdAt
+        .toLocaleDateString("en-CA", { timeZone: safeTimezone })
+        .split("T")[0];
+      if (!dailyData[dateStr]) {
+        dailyData[dateStr] = { repeat: 0, total: 0 };
+      }
+      dailyData[dateStr].total++;
+    });
+
+    Object.entries(customerOrders).forEach(([customerId, custOrders]) => {
+      if (custOrders.length > 1) {
+        custOrders.forEach((order, idx) => {
+          if (idx > 0) {
+            const dateStr = order.createdAt
+              .toLocaleDateString("en-CA", { timeZone: safeTimezone })
+              .split("T")[0];
+            if (dailyData[dateStr]) {
+              dailyData[dateStr].repeat++;
+            }
+          }
+        });
+      }
+    });
+
+    Object.entries(dailyData)
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .forEach(([date, data]) => {
+        timeline.push({
+          date,
+          repeatOrders: data.repeat,
+          totalOrders: data.total,
+          repeatRate: data.total > 0 ? Number(((data.repeat / data.total) * 100).toFixed(1)) : 0,
+        });
+      });
+
+    return {
+      meta: {
+        timezone: safeTimezone,
+        rangeDays: days,
+        startDate,
+        endDate,
+      },
+      summary: {
+        totalCustomers,
+        repeatCustomers,
+        repeatRate,
+        avgRepeatCount,
+        retention7d: Number(retention7d.toFixed(1)),
+        retention14d: Number(retention14d.toFixed(1)),
+        retention30d: Number(retention30d.toFixed(1)),
+      },
+      cohorts,
+      timeline,
+    };
+  }
+
+  /**
+   * Get top lost opportunities (high-view, low-conversion items)
+   */
+  static async getTopLostOpportunities(
+    restaurantId: string,
+    ownerId: string,
+    days: number = 30,
+  ): Promise<any> {
+    const restaurant = await Restaurant.findById(restaurantId).select("ownerId");
+    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+      throw new AppError(
+        403,
+        "You do not have permission to view these analytics",
+      );
+    }
+
+    if (days <= 0 || days > 365) {
+      throw new AppError(400, "Days must be between 1 and 365");
+    }
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    // Get all menu items for this restaurant
+    const menuItems = await MenuItem.find({ restaurantId }).select(
+      "_id name category price views clicks arViews",
+    ).lean();
+
+    // Get order counts per menu item in the time window
+    const orderCounts = await Order.aggregate([
+      {
+        $match: {
+          restaurantId: new mongoose.Types.ObjectId(restaurantId),
+          status: "completed",
+          createdAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: "$menuItemId",
+          orders: { $sum: 1 },
+          revenue: { $sum: "$totalPrice" },
+        },
+      },
+    ]);
+
+    const orderMap = new Map(
+      orderCounts.map(o => [
+        o._id.toString(),
+        { orders: o.orders, revenue: o.revenue },
+      ]),
+    );
+
+    // Calculate category benchmarks
+    const categoryStats: {
+      [key: string]: { totalViews: number; totalOrders: number; avgPrice: number };
+    } = {};
+    menuItems.forEach(item => {
+      if (!categoryStats[item.category]) {
+        categoryStats[item.category] = { totalViews: 0, totalOrders: 0, avgPrice: 0 };
+      }
+      categoryStats[item.category].totalViews += item.views || 0;
+      categoryStats[item.category].avgPrice = item.price || 0;
+    });
+
+    orderCounts.forEach(order => {
+      const item = menuItems.find(
+        m => m._id.toString() === order._id.toString(),
+      );
+      if (item && categoryStats[item.category]) {
+        categoryStats[item.category].totalOrders += order.orders;
+      }
+    });
+
+    // Find lost opportunities: high views, low conversion
+    const opportunities: any[] = [];
+
+    menuItems.forEach(item => {
+      const itemStats = orderMap.get(item._id.toString());
+      const views = item.views || 0;
+      const clicks = item.clicks || 0;
+      const arViews = item.arViews || 0;
+      const totalEngagement = views + clicks + arViews;
+      const orders = itemStats?.orders || 0;
+      const revenue = itemStats?.revenue || 0;
+
+      // Calculate conversion metrics
+      const viewConversion = views > 0 ? (orders / views) * 100 : 0;
+      const categoryBenchmark =
+        categoryStats[item.category].totalViews > 0
+          ? (categoryStats[item.category].totalOrders /
+              categoryStats[item.category].totalViews) *
+            100
+          : 2; // Default 2% if no data
+
+      // Identify opportunities: high engagement, below-benchmark conversion
+      if (totalEngagement >= 10 && viewConversion < categoryBenchmark * 0.8) {
+        // High engagement but <80% of category benchmark
+        const estimatedOrdersAtBenchmark = Math.floor(
+          (categoryBenchmark / 100) * views,
+        );
+        const lostOrders = Math.max(0, estimatedOrdersAtBenchmark - orders);
+        const estLostRevenue = lostOrders * (item.price || 0);
+
+        opportunities.push({
+          rank: 0,
+          itemId: item._id,
+          name: item.name,
+          category: item.category,
+          price: item.price || 0,
+          views,
+          clicks,
+          arViews,
+          totalEngagement,
+          orders,
+          revenue: Number(revenue.toFixed(2)),
+          viewConversion: Number(viewConversion.toFixed(2)),
+          categoryBenchmark: Number(categoryBenchmark.toFixed(2)),
+          estimatedLostOrders: lostOrders,
+          estimatedLostRevenue: Number(estLostRevenue.toFixed(2)),
+          improvementGap: Number(
+            (categoryBenchmark - viewConversion).toFixed(2),
+          ),
+          suggestions: generateSuggestions(
+            item,
+            viewConversion,
+            categoryBenchmark,
+          ),
+        });
+      }
+    });
+
+    // Sort by lost revenue
+    opportunities.sort((a, b) => b.estimatedLostRevenue - a.estimatedLostRevenue);
+
+    // Assign ranks
+    opportunities.forEach((opp, idx) => {
+      opp.rank = idx + 1;
+    });
+
+    // Calculate summary
+    const totalLostRevenue = opportunities.reduce(
+      (sum, opp) => sum + opp.estimatedLostRevenue,
+      0,
+    );
+    const avgImprovementGap =
+      opportunities.length > 0
+        ? opportunities.reduce((sum, opp) => sum + opp.improvementGap, 0) /
+          opportunities.length
+        : 0;
+
+    return {
+      meta: {
+        rangeDays: days,
+        startDate,
+        endDate: new Date(),
+      },
+      summary: {
+        totalLostOpportunities: opportunities.length,
+        totalEstimatedLostRevenue: Number(totalLostRevenue.toFixed(2)),
+        totalEstimatedLostOrders: opportunities.reduce(
+          (sum, opp) => sum + opp.estimatedLostOrders,
+          0,
+        ),
+        averageImprovementGap: Number(avgImprovementGap.toFixed(2)),
+      },
+      opportunities: opportunities.slice(0, 20), // Top 20
+    };
+  }
+}
+
+function calculateRetention(
+  customerOrders: { [key: string]: any[] },
+  windowStart: Date,
+  cohortStart: Date,
+): number {
+  let cohortCustomers = 0;
+  let repeatingInWindow = 0;
+
+  Object.entries(customerOrders).forEach(([, custOrders]) => {
+    const sortedOrders = custOrders.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const firstOrder = sortedOrders[0];
+
+    if (firstOrder.createdAt >= cohortStart && firstOrder.createdAt < windowStart) {
+      cohortCustomers++;
+
+      const hasRepeatInWindow = sortedOrders.some(
+        o => new Date(o.createdAt) >= windowStart,
+      );
+      if (hasRepeatInWindow) {
+        repeatingInWindow++;
+      }
+    }
+  });
+
+  return cohortCustomers > 0 ? (repeatingInWindow / cohortCustomers) * 100 : 0;
+}
+
+
+function generateSuggestions(
+  item: any,
+  viewConversion: number,
+  benchmarkConversion: number,
+): string[] {
+  const suggestions: string[] = [];
+  const gap = benchmarkConversion - viewConversion;
+
+  if (gap > 10) {
+    suggestions.push(
+      "High engagement gap - Review item description and photos",
+    );
+    suggestions.push("Test price point: Consider small discount to boost orders");
+  } else if (gap > 5) {
+    suggestions.push("Moderate gap - Improve visual presentation");
+    suggestions.push("Highlight key benefits in title or description");
+  } else {
+    suggestions.push("Minor gap - Continue monitoring performance");
+  }
+
+  if (!item.arViews || item.arViews < item.views * 0.1) {
+    suggestions.push("Low AR engagement - Optimize 3D model quality");
+  }
+
+  if (!item.clicks || item.clicks < item.views * 0.05) {
+    suggestions.push("Low click-through - Consider featuring in promotions");
+  }
+
+  return suggestions.slice(0, 3);
+}

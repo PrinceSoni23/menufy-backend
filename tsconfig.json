@@ -23,6 +23,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
+    "isolatedModules": true,
     "paths": {
       "@/*": ["src/*"]
     }

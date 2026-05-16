@@ -109,9 +109,13 @@ router.get("/public/:publicUrl", async (req, res, next) => {
 router.post("/scan/:code", async (req, res, next) => {
   try {
     const { code } = req.params;
-    const { deviceId } = req.body;
+    const { deviceId, sessionId } = req.body;
 
-    const qrCode = await QRCodeService.trackQRCodeScan(code, deviceId);
+    const qrCode = await QRCodeService.trackQRCodeScan(
+      code,
+      deviceId,
+      sessionId,
+    );
 
     res.status(200).json({
       success: true,

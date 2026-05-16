@@ -113,12 +113,42 @@ export interface IConversionJob {
 export interface IAnalytics {
   restaurantId: ObjectId | string;
   menuItemId?: ObjectId | string;
-  eventType: "scan" | "view" | "ar_view" | "share";
+  deviceId?: string;
+  eventType:
+    | "scan"
+    | "view"
+    | "view_menu"
+    | "ar_view"
+    | "share"
+    | "add_to_cart"
+    | "remove_from_cart"
+    | "cart_abandoned"
+    | "scroll_depth";
+  eventValue?: number | null;
   deviceType: "iOS" | "Android" | "Web";
   timestamp: Date;
   sessionId: string;
   userAgent: string;
   ipAddress: string;
+}
+
+// Order Types
+export interface IOrder {
+  restaurantId: ObjectId | string;
+  menuItemId: ObjectId | string;
+  userId?: ObjectId | string;
+  sessionId: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  currency: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  status: "pending" | "completed" | "cancelled";
+  paymentMethod?: string;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // JWT Payload

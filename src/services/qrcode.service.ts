@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { QRCode as QRCodeModel, Restaurant } from "../models";
+import { QRCode as QRCodeModel, Restaurant, QRCodeDevice } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { generateShortCode } from "../utils/urlGenerator";
@@ -137,7 +137,11 @@ export class QRCodeService {
   /**
    * Track QR code scan
    */
-  static async trackQRCodeScan(code: string, deviceId: string): Promise<any> {
+  static async trackQRCodeScan(
+    code: string,
+    deviceId?: string,
+    sessionId?: string,
+  ): Promise<any> {
     const qrCode = await QRCodeModel.findOne({ code });
 
     if (!qrCode) {
@@ -148,9 +152,61 @@ export class QRCodeService {
     qrCode.scansToday = (qrCode.scansToday || 0) + 1;
     qrCode.lastScannedAt = new Date();
 
-    // This is simplified - in production you'd track unique devices properly
+    // Prefer deviceId (persistent) for unique-device deduplication.
+    // Only fall back to sessionId when deviceId is not available.
     if (deviceId) {
-      qrCode.uniqueDevices = (qrCode.uniqueDevices || 0) + 1;
+      try {
+        const filter: any = { qrCodeId: qrCode._id, deviceId };
+        const setOnInsert: any = {
+          qrCodeId: qrCode._id,
+          deviceId,
+          createdAt: new Date(),
+        };
+
+        // Only include sessionId in setOnInsert if provided
+        // Do NOT add to $set to avoid MongoDB conflict error
+        if (sessionId) {
+          setOnInsert.sessionId = sessionId;
+        }
+
+        const res: any = await QRCodeDevice.updateOne(
+          filter,
+          { $setOnInsert: setOnInsert, $set: { lastSeen: new Date() } },
+          { upsert: true },
+        );
+
+        // If an insert happened, increment uniqueDevices
+        if (res && (res.upsertedCount === 1 || res.upsertedId)) {
+          qrCode.uniqueDevices = (qrCode.uniqueDevices || 0) + 1;
+        }
+      } catch (err: any) {
+        logger.warn(
+          `Failed to upsert QRCodeDevice for ${code} (device): ${err}`,
+        );
+      }
+    } else if (sessionId) {
+      try {
+        const res: any = await QRCodeDevice.updateOne(
+          { qrCodeId: qrCode._id, sessionId },
+          {
+            $setOnInsert: {
+              qrCodeId: qrCode._id,
+              sessionId,
+              createdAt: new Date(),
+            },
+            $set: { lastSeen: new Date() },
+          },
+          { upsert: true },
+        );
+
+        if (res && (res.upsertedCount === 1 || res.upsertedId)) {
+          qrCode.uniqueDevices = (qrCode.uniqueDevices || 0) + 1;
+        }
+      } catch (err: any) {
+        logger.warn(
+          `Failed to upsert QRCodeDevice for ${code} (session): ${err}`,
+        );
+      }
     }
 
     await qrCode.save();
