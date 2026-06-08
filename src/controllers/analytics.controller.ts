@@ -3,12 +3,57 @@ import { AnalyticsService } from "../services/analytics.service";
 import { AppError } from "../middleware/errorHandler";
 import { validateObjectId } from "../utils/validation";
 import { Restaurant } from "../models";
+import logger from "../utils/logger";
 
 /**
  * ENGAGEMENT-ONLY ANALYTICS CONTROLLER
  * All endpoints track menu engagement, NOT orders or revenue
  */
 export class AnalyticsController {
+  private static dashboardRequestCount = 0;
+
+  private static getDateRange(rangeValue: unknown): {
+    startDate: Date;
+    endDate: Date;
+    range: "24h" | "7d" | "30d" | "all";
+  } {
+    const range = typeof rangeValue === "string" ? rangeValue : "30d";
+    const endDate = new Date();
+
+    switch (range) {
+      case "24h": {
+        return {
+          startDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          endDate,
+          range,
+        };
+      }
+      case "7d": {
+        return {
+          startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          endDate,
+          range,
+        };
+      }
+      case "30d": {
+        return {
+          startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          endDate,
+          range,
+        };
+      }
+      case "all": {
+        return {
+          startDate: new Date(0),
+          endDate,
+          range,
+        };
+      }
+      default:
+        throw new AppError(400, "range must be one of 24h, 7d, 30d, or all");
+    }
+  }
+
   /**
    * POST /api/analytics/track
    * Track an analytics event (scan, view, ar_view, add_to_cart, etc)
@@ -242,9 +287,16 @@ export class AnalyticsController {
         );
       }
 
+      const { range = "30d" } = req.query;
+      const analyticsRange = typeof range === "string" ? range : "30d";
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
+
       const analytics = await AnalyticsService.getComprehensiveAnalytics(
         restaurantId,
         req.user.userId,
+        analyticsRange as "24h" | "7d" | "30d" | "all",
+        startDate,
+        endDate,
       );
 
       res.status(200).json({
@@ -269,19 +321,17 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30, timezone = "UTC" } = req.query;
+      const { range = "30d", timezone = "UTC" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 7 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 7 and 365");
-      }
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const heatmap = await AnalyticsService.getSalesHeatmap(
         restaurantId,
         req.user.userId,
-        daysNum,
+        startDate,
+        endDate,
         String(timezone || "UTC"),
       );
 
@@ -307,25 +357,68 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 7 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 7 and 365");
-      }
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const categoryPerformance = await AnalyticsService.getCategoryPerformance(
         restaurantId,
         req.user.userId,
-        daysNum,
+        startDate,
+        endDate,
       );
 
       res.status(200).json({
         success: true,
         message: "Category performance retrieved",
         data: categoryPerformance,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/analytics/restaurant/:restaurantId/dashboard
+   * Get the full analytics dashboard in a single request
+   */
+  static async getDashboardAnalytics(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      if (!req.user) throw new AppError(401, "Authentication required");
+
+      const { restaurantId } = req.params;
+      const { range = "30d", timezone = "UTC" } = req.query;
+
+      validateObjectId(restaurantId);
+
+      AnalyticsController.dashboardRequestCount += 1;
+      logger.info(
+        `Analytics dashboard load request #${AnalyticsController.dashboardRequestCount} for restaurant ${restaurantId} (range=${String(range || "30d")}, timezone=${String(timezone || "UTC")})`,
+      );
+
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
+
+      const dashboard = await AnalyticsService.getDashboardAnalytics(
+        restaurantId,
+        req.user.userId,
+        typeof range === "string"
+          ? (range as "24h" | "7d" | "30d" | "all")
+          : "30d",
+        startDate,
+        endDate,
+        String(timezone || "UTC"),
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Dashboard analytics retrieved",
+        data: dashboard,
       });
     } catch (error) {
       next(error);
@@ -345,18 +438,11 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const popularity = await AnalyticsService.getItemPopularity(
         restaurantId,
@@ -387,18 +473,11 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const funnel = await AnalyticsService.getEngagementFunnel(
         restaurantId,
@@ -425,18 +504,11 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const arUsage = await AnalyticsService.getARUsage(
         restaurantId,
@@ -467,18 +539,11 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const abandonment = await AnalyticsService.getCartAbandonment(
         restaurantId,
@@ -509,18 +574,11 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const duration = await AnalyticsService.getSessionDuration(
         restaurantId,
@@ -551,18 +609,11 @@ export class AnalyticsController {
       if (!req.user) throw new AppError(401, "Authentication required");
 
       const { restaurantId } = req.params;
-      const { days = 30 } = req.query;
+      const { range = "30d" } = req.query;
 
       validateObjectId(restaurantId);
 
-      const daysNum = parseInt(String(days), 10);
-      if (!Number.isFinite(daysNum) || daysNum < 1 || daysNum > 365) {
-        throw new AppError(400, "Days must be between 1 and 365");
-      }
-
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - daysNum + 1);
+      const { startDate, endDate } = AnalyticsController.getDateRange(range);
 
       const patterns = await AnalyticsService.getSelectionPatterns(
         restaurantId,

@@ -133,7 +133,7 @@ export class AnalyticsService {
 
       return result.length > 0 ? result[0].repeatedDevices : 0;
     } catch (error) {
-      logger.error(`Failed to compute repeated devices: ${error}`);
+      logger.error(`Failed to compute repeated devices: ${String(error)}`);
       return 0;
     }
   }
@@ -172,7 +172,7 @@ export class AnalyticsService {
 
       return analytics.toObject();
     } catch (error) {
-      logger.error(`Failed to track analytics: ${error}`);
+      logger.error(`Failed to track analytics: ${String(error)}`);
       throw new AppError(500, "Failed to track event");
     }
   }
@@ -270,31 +270,37 @@ export class AnalyticsService {
   ): Promise<any> {
     // Use distinct session counts for each funnel stage to avoid double-counting
     // and inconsistent denominators that can produce >100% conversions.
-    const [qrScanSessions, menuOpenSessions, viewSessions, cartSessions] =
-      await Promise.all([
-        Analytics.distinct("sessionId", {
-          restaurantId: new mongoose.Types.ObjectId(restaurantId),
-          eventType: "scan",
-          timestamp: { $gte: startDate, $lte: endDate },
-        }),
-        Analytics.distinct("sessionId", {
-          restaurantId: new mongoose.Types.ObjectId(restaurantId),
-          eventType: { $in: ["view_menu", "view"] },
-          timestamp: { $gte: startDate, $lte: endDate },
-        }),
-        Analytics.distinct("sessionId", {
-          restaurantId: new mongoose.Types.ObjectId(restaurantId),
-          eventType: "view",
-          timestamp: { $gte: startDate, $lte: endDate },
-        }),
-        Analytics.distinct("sessionId", {
-          restaurantId: new mongoose.Types.ObjectId(restaurantId),
-          eventType: "add_to_cart",
-          timestamp: { $gte: startDate, $lte: endDate },
-        }),
-      ]);
+    const [
+      qrScanSessions,
+      menuOpenSessions,
+      viewSessions,
+      cartSessions,
+      qrCode,
+    ] = await Promise.all([
+      Analytics.distinct("sessionId", {
+        restaurantId: new mongoose.Types.ObjectId(restaurantId),
+        eventType: "scan",
+        timestamp: { $gte: startDate, $lte: endDate },
+      }),
+      Analytics.distinct("sessionId", {
+        restaurantId: new mongoose.Types.ObjectId(restaurantId),
+        eventType: { $in: ["view_menu", "view"] },
+        timestamp: { $gte: startDate, $lte: endDate },
+      }),
+      Analytics.distinct("sessionId", {
+        restaurantId: new mongoose.Types.ObjectId(restaurantId),
+        eventType: "view",
+        timestamp: { $gte: startDate, $lte: endDate },
+      }),
+      Analytics.distinct("sessionId", {
+        restaurantId: new mongoose.Types.ObjectId(restaurantId),
+        eventType: "add_to_cart",
+        timestamp: { $gte: startDate, $lte: endDate },
+      }),
+      QRCode.findOne({ restaurantId }).select("totalScans").lean(),
+    ]);
 
-    const qrScans = qrScanSessions.length;
+    const qrScans = qrScanSessions.length || Number(qrCode?.totalScans || 0);
     const menuOpens = menuOpenSessions.length; // sessions that opened menu or viewed
     const itemViews = viewSessions.length; // sessions that viewed items
     const cartAdds = cartSessions.length; // sessions that added to cart
@@ -338,19 +344,41 @@ export class AnalyticsService {
       funnel,
       summary: {
         totalScans: qrScans,
-        // Use session-intersection denominators to avoid >100% artifacts
-        scanToViewConversion:
-          qrScans > 0
-            ? Number(((sessionsWithScanAndView / qrScans) * 100).toFixed(1))
-            : 0,
-        viewToAddConversion:
-          itemViews > 0
-            ? Number(((sessionsWithViewAndAdd / itemViews) * 100).toFixed(1))
-            : 0,
-        endToEndConversion:
-          qrScans > 0
-            ? Number(((sessionsWithScanAndAdd / qrScans) * 100).toFixed(1))
-            : 0,
+        // Compute conversions with sensible fallbacks when session-level scan events are absent
+        scanToViewConversion: (() => {
+          if (qrScanSessions.length > 0 && qrScans > 0) {
+            return Number(
+              ((sessionsWithScanAndView / qrScans) * 100).toFixed(1),
+            );
+          }
+          // No session-level scan events: estimate using menuOpens over total QR scans (if available)
+          if (menuOpens > 0 && qrScans > 0) {
+            return Number(((menuOpens / qrScans) * 100).toFixed(1));
+          }
+          return 0;
+        })(),
+        viewToAddConversion: (() => {
+          if (itemViews > 0) {
+            return Number(
+              ((sessionsWithViewAndAdd / itemViews) * 100).toFixed(1),
+            );
+          }
+          if (menuOpens > 0) {
+            return Number(((cartAdds / menuOpens) * 100).toFixed(1));
+          }
+          return 0;
+        })(),
+        endToEndConversion: (() => {
+          if (qrScanSessions.length > 0 && qrScans > 0) {
+            return Number(
+              ((sessionsWithScanAndAdd / qrScans) * 100).toFixed(1),
+            );
+          }
+          if (qrScans > 0) {
+            return Number(((cartAdds / qrScans) * 100).toFixed(1));
+          }
+          return 0;
+        })(),
       },
     };
   }
@@ -381,7 +409,14 @@ export class AnalyticsService {
         ? ((arSessions.length / totalSessions.length) * 100).toFixed(1)
         : 0;
 
-    // AR views by item
+    // Count total AR views (including those without menuItemId)
+    const totalARViews = await Analytics.countDocuments({
+      restaurantId,
+      eventType: "ar_view",
+      timestamp: { $gte: startDate, $lte: endDate },
+    });
+
+    // AR views by item (for topARItems list)
     const arViewsByItem = (await Analytics.aggregate([
       {
         $match: {
@@ -422,12 +457,7 @@ export class AnalyticsService {
         percentageUsingAR: Number(arUsageRate),
         avgARViewsPerSession:
           arSessions.length > 0
-            ? Number(
-                (
-                  topARItems.reduce((sum, item) => sum + item.arViews, 0) /
-                  arSessions.length
-                ).toFixed(2),
-              )
+            ? Number((totalARViews / arSessions.length).toFixed(2))
             : 0,
       },
       breakdown: [
@@ -755,6 +785,9 @@ export class AnalyticsService {
   static async getComprehensiveAnalytics(
     restaurantId: string,
     ownerId: string,
+    range: "24h" | "7d" | "30d" | "all" = "30d",
+    startDate?: Date,
+    endDate?: Date,
   ): Promise<any> {
     try {
       const restaurant = await Restaurant.findById(restaurantId);
@@ -766,8 +799,11 @@ export class AnalyticsService {
       }
 
       const today = new Date();
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const monthStart =
+        startDate ?? new Date(today.getFullYear(), today.getMonth(), 1);
+      const monthEnd =
+        endDate ?? new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const isAllTime = range === "all";
 
       const [
         qrScanEvents,
@@ -907,29 +943,34 @@ export class AnalyticsService {
         timestamp: { $gte: monthStart, $lte: monthEnd },
       });
 
-      const qrCodeFallbackScans = qrCodeDocs.reduce(
-        (sum, qr) => sum + (qr.totalScans || 0),
-        0,
-      );
-      const menuTotalViews = menuItemsTyped.reduce(
-        (sum, item) => sum + (item.views || 0),
-        0,
-      );
-      const menuTotalArViews = menuItemsTyped.reduce(
-        (sum, item) => sum + (item.arViews || 0),
-        0,
-      );
-      const distinctVisitedFallback = menuItemsTyped.filter(
-        item => (item.views || 0) > 0 || (item.arViews || 0) > 0,
-      ).length;
+      const qrCodeFallbackScans = isAllTime
+        ? qrCodeDocs.reduce((sum, qr) => sum + (qr.totalScans || 0), 0)
+        : 0;
+      const menuTotalViews = isAllTime
+        ? menuItemsTyped.reduce((sum, item) => sum + (item.views || 0), 0)
+        : 0;
+      const menuTotalArViews = isAllTime
+        ? menuItemsTyped.reduce((sum, item) => sum + (item.arViews || 0), 0)
+        : 0;
+      const distinctVisitedFallback = isAllTime
+        ? menuItemsTyped.filter(
+            item => (item.views || 0) > 0 || (item.arViews || 0) > 0,
+          ).length
+        : 0;
 
       const qrScans =
         qrScanEvents > 0
           ? qrScanEvents
-          : qrCodeFallbackScans || restaurant.totalScans || 0;
+          : isAllTime
+            ? qrCodeFallbackScans || restaurant.totalScans || 0
+            : 0;
       const arViews = arViewEvents > 0 ? arViewEvents : menuTotalArViews;
       const uniqueDeviceCustomers =
-        qrCodeDocs[0]?.uniqueDevices || allSessionIds.length || 0;
+        allSessionIds.length > 0
+          ? allSessionIds.length
+          : isAllTime
+            ? qrCodeDocs[0]?.uniqueDevices || 0
+            : 0;
 
       // Get device breakdown
       const deviceStats = { iOS: 0, Android: 0, Web: 0 };
@@ -948,12 +989,62 @@ export class AnalyticsService {
             ).toFixed(1)
           : "N/A";
 
-      // Get top items by views
-      const topItems = (await MenuItem.find({ restaurantId })
-        .select("name views arViews clicks")
-        .sort({ views: -1 })
-        .limit(10)
-        .lean()) as MenuItemDoc[];
+      // Get top items by view activity in the selected range
+      const topItemsByViews = (await Analytics.aggregate([
+        {
+          $match: {
+            restaurantId,
+            eventType: { $in: ["view", "ar_view"] },
+            timestamp: { $gte: monthStart, $lte: monthEnd },
+            menuItemId: { $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: "$menuItemId",
+            views: { $sum: 1 },
+            arViews: {
+              $sum: { $cond: [{ $eq: ["$eventType", "ar_view"] }, 1, 0] },
+            },
+          },
+        },
+        { $sort: { views: -1, arViews: -1 } },
+        { $limit: 10 },
+      ])) as Array<{
+        _id: mongoose.Types.ObjectId;
+        views: number;
+        arViews: number;
+      }>;
+
+      const topItems =
+        topItemsByViews.length > 0
+          ? topItemsByViews
+          : isAllTime
+            ? (
+                (await MenuItem.find({ restaurantId })
+                  .select("_id name views arViews clicks")
+                  .sort({ views: -1 })
+                  .limit(10)
+                  .lean()) as MenuItemDoc[]
+              ).map(item => ({
+                _id: item._id,
+                name: item.name,
+                views: item.views || 0,
+                arViews: item.arViews || 0,
+                clicks: item.clicks || 0,
+              }))
+            : [];
+
+      const topItemIds = topItems.map(item => String(item._id));
+      const topItemDocs =
+        topItemIds.length > 0
+          ? ((await MenuItem.find({ _id: { $in: topItemIds } })
+              .select("_id name views arViews clicks")
+              .lean()) as MenuItemDoc[])
+          : [];
+      const topItemMap = new Map(
+        topItemDocs.map(item => [String(item._id), item]),
+      );
 
       // Get dish visit count (distinct items viewed)
       const dishesViewed = await Analytics.distinct("menuItemId", {
@@ -1118,10 +1209,16 @@ export class AnalyticsService {
           bottomDishes,
         },
         devices: deviceStats,
-        topItems: topItems.map(item => ({
-          name: item.name,
-          views: item.views || 0,
-        })),
+        topItems: topItems.map(item => {
+          const menuItem = topItemMap.get(String(item._id));
+          return {
+            _id: String(item._id),
+            name: menuItem?.name || "Unknown",
+            views: item.views || menuItem?.views || 0,
+            arViews: item.arViews || menuItem?.arViews || 0,
+            clicks: menuItem?.clicks || 0,
+          };
+        }),
         trends,
         averageRating: avgRating,
         engagement: {
@@ -1140,7 +1237,7 @@ export class AnalyticsService {
         selectionPatterns,
       };
     } catch (error) {
-      logger.error(`Analytics error: ${error}`);
+      logger.error(`Analytics error: ${String(error)}`);
       throw error;
     }
   }
@@ -1156,7 +1253,8 @@ export class AnalyticsService {
   static async getSalesHeatmap(
     restaurantId: string,
     ownerId: string,
-    days: number = 30,
+    startDate: Date,
+    endDate: Date,
     timezone: string = "UTC",
   ): Promise<any> {
     const restaurant =
@@ -1170,32 +1268,25 @@ export class AnalyticsService {
 
     const safeTimezone = this.validateTimezone(timezone);
 
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - days + 1);
-    startDate.setHours(0, 0, 0, 0);
-
-    const rows = await Order.aggregate([
+    const sourceRows = await Analytics.aggregate([
       {
         $match: {
           restaurantId: new mongoose.Types.ObjectId(restaurantId),
-          status: "completed",
-          createdAt: { $gte: startDate, $lte: endDate },
+          eventType: "add_to_cart",
+          timestamp: { $gte: startDate, $lte: endDate },
         },
       },
       {
         $group: {
           _id: {
             dayOfWeek: {
-              $dayOfWeek: { date: "$createdAt", timezone: safeTimezone },
+              $dayOfWeek: { date: "$timestamp", timezone: safeTimezone },
             },
             hourOfDay: {
-              $hour: { date: "$createdAt", timezone: safeTimezone },
+              $hour: { date: "$timestamp", timezone: safeTimezone },
             },
           },
-          orders: { $sum: 1 },
-          revenue: { $sum: "$totalPrice" },
-          quantity: { $sum: "$quantity" },
+          addToCart: { $sum: 1 },
         },
       },
       { $sort: { "_id.dayOfWeek": 1, "_id.hourOfDay": 1 } },
@@ -1206,85 +1297,73 @@ export class AnalyticsService {
       cells: Array.from({ length: 24 }, (_, hour) => ({
         hour,
         hourLabel: `${String(hour).padStart(2, "0")}:00`,
-        orders: 0,
-        revenue: 0,
-        quantity: 0,
+        addToCart: 0,
       })),
-      totalOrders: 0,
-      totalRevenue: 0,
+      totalAddToCart: 0,
     }));
 
     const hourTotals = Array.from({ length: 24 }, (_, hour) => ({
       hour,
       hourLabel: `${String(hour).padStart(2, "0")}:00`,
-      orders: 0,
-      revenue: 0,
-      quantity: 0,
+      addToCart: 0,
     }));
 
-    let totalOrders = 0;
-    let totalRevenue = 0;
-    let maxCellRevenue = 0;
-    let maxCellOrders = 0;
+    let totalAddToCart = 0;
+    let maxCellAddToCart = 0;
 
-    rows.forEach(row => {
+    sourceRows.forEach(row => {
       const dayIdx = Number(row._id.dayOfWeek) - 1;
       const hour = Number(row._id.hourOfDay);
       if (dayIdx < 0 || dayIdx > 6 || hour < 0 || hour > 23) return;
 
-      const orders = Number(row.orders || 0);
-      const revenue = Number(row.revenue || 0);
-      const quantity = Number(row.quantity || 0);
+      const addToCart = Number(row.addToCart || 0);
 
       matrix[dayIdx].cells[hour] = {
         hour,
         hourLabel: `${String(hour).padStart(2, "0")}:00`,
-        orders,
-        revenue,
-        quantity,
+        addToCart,
       };
 
-      matrix[dayIdx].totalOrders += orders;
-      matrix[dayIdx].totalRevenue += revenue;
+      matrix[dayIdx].totalAddToCart += addToCart;
 
-      hourTotals[hour].orders += orders;
-      hourTotals[hour].revenue += revenue;
-      hourTotals[hour].quantity += quantity;
+      hourTotals[hour].addToCart += addToCart;
 
-      totalOrders += orders;
-      totalRevenue += revenue;
+      totalAddToCart += addToCart;
 
-      if (revenue > maxCellRevenue) maxCellRevenue = revenue;
-      if (orders > maxCellOrders) maxCellOrders = orders;
+      if (addToCart > maxCellAddToCart) maxCellAddToCart = addToCart;
     });
 
     const peakHour = hourTotals.reduce(
-      (best, curr) => (curr.revenue > best.revenue ? curr : best),
+      (best, curr) => (curr.addToCart > best.addToCart ? curr : best),
       hourTotals[0],
     );
 
     const peakDay = matrix.reduce(
-      (best, curr) => (curr.totalRevenue > best.totalRevenue ? curr : best),
+      (best, curr) => (curr.totalAddToCart > best.totalAddToCart ? curr : best),
       matrix[0],
     );
 
     const populatedCells = matrix.reduce(
-      (sum, row) => sum + row.cells.filter(c => c.orders > 0).length,
+      (sum, row) => sum + row.cells.filter(c => c.addToCart > 0).length,
       0,
     );
 
     return {
       meta: {
         timezone: safeTimezone,
-        rangeDays: days,
+        rangeDays: Math.max(
+          1,
+          Math.ceil((endDate.getTime() - startDate.getTime()) / 86400000),
+        ),
         startDate,
         endDate,
       },
       summary: {
-        totalOrders,
-        totalRevenue: Number(totalRevenue.toFixed(2)),
-        averageOrderValue:
-          totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : 0,
+        totalAddToCart,
+        averageAddToCartPerActiveHour:
+          totalAddToCart > 0
+            ? Number((totalAddToCart / Math.max(populatedCells, 1)).toFixed(2))
+            : 0,
         dataCoveragePct: Number(((populatedCells / (7 * 24)) * 100).toFixed(2)),
       },
       peaks: {
@@ -1293,13 +1372,11 @@ export class AnalyticsService {
         },
         day: {
           day: peakDay.day,
-          totalOrders: peakDay.totalOrders,
-          totalRevenue: Number(peakDay.totalRevenue.toFixed(2)),
+          totalAddToCart: peakDay.totalAddToCart,
         },
       },
       max: {
-        cellRevenue: Number(maxCellRevenue.toFixed(2)),
-        cellOrders: maxCellOrders,
+        cellAddToCart: maxCellAddToCart,
       },
       dayOrder: this.HEATMAP_DAYS,
       hourOrder: hourTotals.map(h => ({
@@ -1307,17 +1384,15 @@ export class AnalyticsService {
         hourLabel: h.hourLabel,
       })),
       heatmap: matrix,
-      hourTotals: hourTotals.map(h => ({
-        ...h,
-        revenue: Number(h.revenue.toFixed(2)),
-      })),
+      hourTotals,
     };
   }
 
   static async getCategoryPerformance(
     restaurantId: string,
     ownerId: string,
-    days: number = 30,
+    startDate: Date,
+    endDate: Date,
   ): Promise<any> {
     const restaurant =
       await Restaurant.findById(restaurantId).select("ownerId");
@@ -1327,19 +1402,13 @@ export class AnalyticsService {
         "You do not have permission to view these analytics",
       );
     }
-
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - days + 1);
-    startDate.setHours(0, 0, 0, 0);
-
     const menuItems = await MenuItem.find({ restaurantId })
       .select("_id name category views arViews")
       .lean();
 
     const itemMeta = new Map(menuItems.map(item => [String(item._id), item]));
 
-    const [ordersByItem, viewsByItem] = await Promise.all([
+    const [ordersByItem, viewsByItem, addToCartByItem] = await Promise.all([
       Order.aggregate([
         {
           $match: {
@@ -1373,6 +1442,22 @@ export class AnalyticsService {
           },
         },
       ]),
+      Analytics.aggregate([
+        {
+          $match: {
+            restaurantId: new mongoose.Types.ObjectId(restaurantId),
+            eventType: "add_to_cart",
+            timestamp: { $gte: startDate, $lte: endDate },
+            menuItemId: { $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: "$menuItemId",
+            addedToCart: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
 
     const categoryMap = new Map<
@@ -1383,6 +1468,7 @@ export class AnalyticsService {
         quantity: number;
         revenue: number;
         views: number;
+        addedToCart: number;
         menuItemCount: number;
       }
     >();
@@ -1397,6 +1483,7 @@ export class AnalyticsService {
           quantity: 0,
           revenue: 0,
           views: 0,
+          addedToCart: 0,
           menuItemCount: 0,
         });
       }
@@ -1424,6 +1511,13 @@ export class AnalyticsService {
       metric.views += Number(row.views || 0);
     });
 
+    addToCartByItem.forEach(row => {
+      const itemId = String(row._id);
+      const meta = itemMeta.get(itemId);
+      const metric = ensureCategory(meta?.category);
+      metric.addedToCart += Number(row.addedToCart || 0);
+    });
+
     const totalTrackedViews = Array.from(categoryMap.values()).reduce(
       (sum, item) => sum + item.views,
       0,
@@ -1442,7 +1536,7 @@ export class AnalyticsService {
       .map(metric => {
         const aov = metric.orders > 0 ? metric.revenue / metric.orders : 0;
         const conversionRate =
-          metric.views > 0 ? (metric.orders / metric.views) * 100 : 0;
+          metric.views > 0 ? (metric.addedToCart / metric.views) * 100 : 0;
 
         return {
           category: metric.category,
@@ -1450,12 +1544,13 @@ export class AnalyticsService {
           orders: metric.orders,
           quantity: metric.quantity,
           views: metric.views,
+          addedToCart: metric.addedToCart,
           revenue: Number(metric.revenue.toFixed(2)),
           averageOrderValue: Number(aov.toFixed(2)),
           conversionRate: Number(conversionRate.toFixed(2)),
         };
       })
-      .sort((a, b) => b.revenue - a.revenue)
+      .sort((a, b) => b.addedToCart - a.addedToCart || b.views - a.views)
       .map((entry, idx) => ({ rank: idx + 1, ...entry }));
 
     const totals = categories.reduce(
@@ -1483,7 +1578,10 @@ export class AnalyticsService {
 
     return {
       meta: {
-        rangeDays: days,
+        rangeDays: Math.max(
+          1,
+          Math.ceil((endDate.getTime() - startDate.getTime()) / 86400000),
+        ),
         startDate,
         endDate,
         viewSource,
@@ -1509,6 +1607,94 @@ export class AnalyticsService {
         weakestCategory,
       },
       categories,
+    };
+  }
+
+  static async getDashboardAnalytics(
+    restaurantId: string,
+    ownerId: string,
+    range: "24h" | "7d" | "30d" | "all" = "30d",
+    startDate?: Date,
+    endDate?: Date,
+    timezone: string = "UTC",
+  ): Promise<any> {
+    // Calculate actual dates based on range if not provided
+    let actualStartDate = startDate;
+    let actualEndDate = endDate ?? new Date();
+
+    if (!actualStartDate) {
+      const now = new Date();
+      switch (range) {
+        case "24h":
+          actualStartDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          break;
+        case "7d":
+          actualStartDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case "30d":
+          actualStartDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+        case "all":
+          actualStartDate = new Date(0);
+          break;
+        default:
+          actualStartDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      }
+    }
+
+    const analytics = await this.getComprehensiveAnalytics(
+      restaurantId,
+      ownerId,
+      range,
+      actualStartDate,
+      actualEndDate,
+    );
+
+    const [
+      salesHeatmap,
+      categoryPerformance,
+      itemPopularity,
+      engagementFunnel,
+      arUsage,
+      cartAbandonment,
+      sessionDuration,
+    ] = await Promise.all([
+      this.getSalesHeatmap(
+        restaurantId,
+        ownerId,
+        actualStartDate,
+        actualEndDate,
+        timezone,
+      ),
+      this.getCategoryPerformance(
+        restaurantId,
+        ownerId,
+        actualStartDate,
+        actualEndDate,
+      ),
+      this.getItemPopularity(restaurantId, actualStartDate, actualEndDate),
+      this.getEngagementFunnel(restaurantId, actualStartDate, actualEndDate),
+      this.getARUsage(restaurantId, actualStartDate, actualEndDate),
+      this.getCartAbandonment(restaurantId, actualStartDate, actualEndDate),
+      this.getSessionDuration(restaurantId, actualStartDate, actualEndDate),
+    ]);
+
+    return {
+      analytics,
+      itemPopularity,
+      engagementFunnel,
+      arUsage,
+      cartAbandonment,
+      sessionDuration,
+      selectionPatterns: analytics.selectionPatterns,
+      salesHeatmap,
+      categoryPerformance,
+      meta: {
+        range,
+        startDate: actualStartDate,
+        endDate: actualEndDate,
+        timezone,
+      },
     };
   }
 

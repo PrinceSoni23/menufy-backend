@@ -20,6 +20,13 @@ const analyticsSchema = new Schema<IAnalyticsDocument>(
       default: null,
       trim: true,
     },
+    source: {
+      type: String,
+      enum: ["qr_scan", "direct_web", "hard_refresh", "back_forward"],
+      // Use a sensible default when the client doesn't provide a source
+      // (avoids Mongoose enum validation errors when source is omitted/null)
+      default: "direct_web",
+    },
     eventType: {
       type: String,
       enum: [

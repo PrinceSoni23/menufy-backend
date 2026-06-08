@@ -78,6 +78,16 @@ router.get(
   AnalyticsController.getCategoryPerformance,
 );
 
+/**
+ * GET /api/analytics/restaurant/:restaurantId/dashboard
+ * Get the full analytics dashboard in one request
+ */
+router.get(
+  "/restaurant/:restaurantId/dashboard",
+  verifyToken,
+  AnalyticsController.getDashboardAnalytics,
+);
+
 // ==================== PROTECTED ROUTES (ENGAGEMENT METRICS) ====================
 
 /**

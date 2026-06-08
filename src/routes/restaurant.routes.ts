@@ -9,31 +9,51 @@ const router = Router();
  * GET /api/restaurants/public/:publicUrl
  * Get restaurant by public URL (no auth required)
  */
-router.get("/public/:publicUrl", RestaurantController.getPublicRestaurant);
+router.get(
+  "/public/:publicUrl",
+  (req, res, next) =>
+    void RestaurantController.getPublicRestaurant(req, res, next),
+);
 
 /**
  * GET /api/restaurants/qr/:qrcode
  * Get restaurant by QR code (no auth required)
  */
-router.get("/qr/:qrcode", RestaurantController.getRestaurantByQRCode);
+router.get(
+  "/qr/:qrcode",
+  (req, res, next) =>
+    void RestaurantController.getRestaurantByQRCode(req, res, next),
+);
 
 /**
  * GET /api/restaurants/search
  * Search restaurants (no auth required)
  */
-router.get("/search", RestaurantController.searchRestaurants);
+router.get(
+  "/search",
+  (req, res, next) =>
+    void RestaurantController.searchRestaurants(req, res, next),
+);
 
 /**
  * GET /api/restaurants/city/:city
  * Get restaurants by city (no auth required)
  */
-router.get("/city/:city", RestaurantController.getRestaurantsByCity);
+router.get(
+  "/city/:city",
+  (req, res, next) =>
+    void RestaurantController.getRestaurantsByCity(req, res, next),
+);
 
 /**
  * POST /api/restaurants/:id/scan
  * Increment scan count (no auth required)
  */
-router.post("/:id/scan", RestaurantController.incrementScanCount);
+router.post(
+  "/:id/scan",
+  (req, res, next) =>
+    void RestaurantController.incrementScanCount(req, res, next),
+);
 
 // ==================== PROTECTED ROUTES ====================
 
@@ -46,26 +66,41 @@ router.post(
   "/",
   verifyToken,
   verifyOwner,
-  RestaurantController.createRestaurant,
+  (req, res, next) =>
+    void RestaurantController.createRestaurant(req, res, next),
 );
 
 /**
  * GET /api/restaurants
  * Get all restaurants for authenticated owner
  */
-router.get("/", verifyToken, RestaurantController.getOwnerRestaurants);
+router.get(
+  "/",
+  verifyToken,
+  (req, res, next) =>
+    void RestaurantController.getOwnerRestaurants(req, res, next),
+);
 
 /**
  * GET /api/restaurants/summary
  * Get live dashboard summary for authenticated owner
  */
-router.get("/summary", verifyToken, RestaurantController.getDashboardSummary);
+router.get(
+  "/summary",
+  verifyToken,
+  (req, res, next) =>
+    void RestaurantController.getDashboardSummary(req, res, next),
+);
 
 /**
  * GET /api/restaurants/:id
  * Get restaurant by ID
  */
-router.get("/:id", verifyToken, RestaurantController.getRestaurant);
+router.get(
+  "/:id",
+  verifyToken,
+  (req, res, next) => void RestaurantController.getRestaurant(req, res, next),
+);
 
 /**
  * PUT /api/restaurants/:id
@@ -76,7 +111,8 @@ router.put(
   "/:id",
   verifyToken,
   verifyOwner,
-  RestaurantController.updateRestaurant,
+  (req, res, next) =>
+    void RestaurantController.updateRestaurant(req, res, next),
 );
 
 /**
@@ -88,7 +124,8 @@ router.delete(
   "/:id",
   verifyToken,
   verifyOwner,
-  RestaurantController.deleteRestaurant,
+  (req, res, next) =>
+    void RestaurantController.deleteRestaurant(req, res, next),
 );
 
 /**
@@ -100,7 +137,8 @@ router.get(
   "/:id/stats",
   verifyToken,
   verifyOwner,
-  RestaurantController.getRestaurantStats,
+  (req, res, next) =>
+    void RestaurantController.getRestaurantStats(req, res, next),
 );
 
 export default router;

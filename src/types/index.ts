@@ -114,6 +114,7 @@ export interface IAnalytics {
   restaurantId: ObjectId | string;
   menuItemId?: ObjectId | string;
   deviceId?: string;
+  source?: "qr_scan" | "direct_web" | "hard_refresh" | "back_forward";
   eventType:
     | "scan"
     | "view"

@@ -37,7 +37,7 @@ router.post(
   validateObjectIdParams(["restaurantId", "menuItemId"]),
   verifyToken,
   upload.single("image"),
-  UploadController.uploadMenuItemImage,
+  (req, res, next) => void UploadController.uploadMenuItemImage(req, res, next),
 );
 
 /**
@@ -50,7 +50,7 @@ router.post(
   validateObjectIdParams(["restaurantId", "menuItemId"]),
   verifyToken,
   upload3D.single("file"),
-  UploadController.upload3DModel,
+  (req, res, next) => void UploadController.upload3DModel(req, res, next),
 );
 
 /**
@@ -60,7 +60,7 @@ router.post(
 router.get(
   "/conversion-status/:jobId",
   verifyToken,
-  UploadController.getConversionStatus,
+  (req, res, next) => void UploadController.getConversionStatus(req, res, next),
 );
 
 /**
@@ -70,7 +70,7 @@ router.get(
 router.post(
   "/cancel-conversion/:jobId",
   verifyToken,
-  UploadController.cancelConversion,
+  (req, res, next) => void UploadController.cancelConversion(req, res, next),
 );
 
 /**
@@ -81,7 +81,7 @@ router.post(
   "/retry-conversion/:menuItemId",
   validateObjectIdParams(["menuItemId"]),
   verifyToken,
-  UploadController.retryConversion,
+  (req, res, next) => void UploadController.retryConversion(req, res, next),
 );
 
 /**
@@ -89,19 +89,29 @@ router.post(
  * Webhook endpoint for conversion completion (called by Tripo AI)
  * No authentication required - Tripo AI sends webhook
  */
-router.post("/conversion-complete", UploadController.conversionWebhook);
+router.post("/conversion-complete", (req, res, next) =>
+  UploadController.conversionWebhook(req, res, next),
+);
 
 /**
  * GET /api/upload/verify
  * Check current public URL configuration and accessibility
  * No auth required - used for debugging
  */
-router.get("/verify", UploadVerifyController.verifyPublicUrl);
+router.get(
+  "/verify",
+  (req, res, next) => (req, res, next) =>
+    void UploadVerifyController.verifyPublicUrl(req, res, next),
+);
 
 /**
  * GET /api/upload/test/:filename
  * Test if a specific file is accessible via public URL
  */
-router.get("/test/:filename", UploadVerifyController.testFileAccess);
+router.get(
+  "/test/:filename",
+  (req, res, next) => (req, res, next) =>
+    void UploadVerifyController.testFileAccess(req, res, next),
+);
 
 export default router;
