@@ -1,12 +1,22 @@
 import { Router, Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 import { UploadController } from "../controllers/upload.controller";
 import { UploadVerifyController } from "../controllers/upload-verify.controller";
 import { verifyToken } from "../middleware/auth.middleware";
 import { upload, upload3D } from "../utils/uploadHandler";
 import { validateObjectId } from "../utils/validation";
-import { AppError } from "../middleware/errorHandler";
 
 const router = Router();
+
+const diagnosticLimiter = rateLimit({
+  windowMs: parseInt(
+    process.env.UPLOAD_DIAGNOSTIC_RATE_LIMIT_WINDOW_MS || "900000",
+  ),
+  max: parseInt(process.env.UPLOAD_DIAGNOSTIC_RATE_LIMIT_MAX_REQUESTS || "120"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many diagnostic requests from this IP, please try again later.",
+});
 
 /**
  * Middleware to validate ObjectId in params
@@ -89,8 +99,9 @@ router.post(
  * Webhook endpoint for conversion completion (called by Tripo AI)
  * No authentication required - Tripo AI sends webhook
  */
-router.post("/conversion-complete", (req, res, next) =>
-  UploadController.conversionWebhook(req, res, next),
+router.post(
+  "/conversion-complete",
+  (req, res, next) => void UploadController.conversionWebhook(req, res, next),
 );
 
 /**
@@ -100,7 +111,8 @@ router.post("/conversion-complete", (req, res, next) =>
  */
 router.get(
   "/verify",
-  (req, res, next) => (req, res, next) =>
+  diagnosticLimiter,
+  (req, res, next) =>
     void UploadVerifyController.verifyPublicUrl(req, res, next),
 );
 
@@ -110,7 +122,8 @@ router.get(
  */
 router.get(
   "/test/:filename",
-  (req, res, next) => (req, res, next) =>
+  diagnosticLimiter,
+  (req, res, next) =>
     void UploadVerifyController.testFileAccess(req, res, next),
 );
 

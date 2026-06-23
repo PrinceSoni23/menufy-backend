@@ -19,9 +19,6 @@ import connectDB from "./config/database";
 import logger from "./utils/logger";
 import { fileCache } from "./utils/fileCache";
 
-// Jobs
-import { startConversionScheduler } from "./jobs/conversionScheduler";
-
 // Middleware
 import errorHandler from "./middleware/errorHandler";
 import requestLogger from "./middleware/requestLogger";
@@ -38,6 +35,8 @@ import uploadRoutes from "./routes/upload.routes";
 import mediaRoutes from "./routes/media.routes";
 
 const app: Express = express();
+
+app.set("trust proxy", 1);
 
 // ==================== SECURITY MIDDLEWARE ====================
 // Helmet should not apply to static file serving
@@ -64,7 +63,7 @@ const authLimiter = rateLimit({
 
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000"),
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || "100"),
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || "3000"),
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests from this IP, please try again later.",
@@ -108,7 +107,7 @@ if (!fs.existsSync(uploadsDir)) {
 // CORS preflight
 app.use("/uploads", (req, res, next) => {
   // Echo the incoming origin when present; avoid wildcard with credentials mismatch
-  const origin = (req.get("origin") as string) || "*";
+  const origin = req.get("origin") || "*";
   res.set("Access-Control-Allow-Origin", origin);
   res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
   res.set("Access-Control-Allow-Headers", "*");
@@ -119,7 +118,7 @@ app.use("/uploads", (req, res, next) => {
     // Remove credential header to prevent invalid wildcard + credentials combo
     try {
       res.removeHeader("Access-Control-Allow-Credentials");
-    } catch (e) {
+    } catch {
       // ignore
     }
     next();
@@ -140,7 +139,9 @@ app.use(
       res.set("Access-Control-Allow-Headers", "*");
       try {
         res.removeHeader("Access-Control-Allow-Credentials");
-      } catch (e) {}
+      } catch {
+        // ignore
+      }
 
       // Add cache headers based on file type
       if (path.endsWith(".glb")) {
@@ -170,6 +171,10 @@ app.get("/health", (req: Request, res: Response) => {
 
 // ==================== CACHE STATS ====================
 app.get("/cache/stats", (req: Request, res: Response) => {
+  res.set({
+    "Cache-Control": "no-store",
+    "X-Robots-Tag": "noindex, nofollow",
+  });
   const stats = fileCache.getStats();
   res.json({
     status: "OK",
@@ -181,6 +186,10 @@ app.get("/cache/stats", (req: Request, res: Response) => {
 // ==================== UPLOADS DIAGNOSTIC ====================
 app.get("/debug/uploads-check", (req: Request, res: Response) => {
   try {
+    res.set({
+      "Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex, nofollow",
+    });
     const imagesDir = path.join(__dirname, "../uploads/images");
     const modelsDir = path.join(__dirname, "../uploads/3d-models");
 

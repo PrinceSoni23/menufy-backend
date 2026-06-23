@@ -54,6 +54,8 @@ const qrcodeSchema = new Schema<IQRCodeDocument>(
 qrcodeSchema.index({ restaurantId: 1 });
 qrcodeSchema.index({ code: 1 });
 qrcodeSchema.index({ publicUrl: 1 });
+qrcodeSchema.index({ restaurantId: 1, code: 1 });
+qrcodeSchema.index({ publicUrl: 1, code: 1 });
 
 const QRCode = mongoose.model<IQRCodeDocument>("QRCode", qrcodeSchema);
 

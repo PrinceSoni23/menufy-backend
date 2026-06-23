@@ -17,7 +17,7 @@ interface CacheEntry {
 
 class FileCache {
   private cache = new Map<string, CacheEntry>();
-  private readonly maxCacheSize = 500 * 1024 * 1024; // 500MB max cache
+  private readonly maxCacheSize = 250 * 1024 * 1024; // 250MB max cache
   private currentCacheSize = 0;
   private readonly ttl = 1 * 60 * 60 * 1000; // 1 hour default TTL
 

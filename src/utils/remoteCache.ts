@@ -17,7 +17,7 @@ class RemoteCache {
   private cache = new Map<string, RemoteCacheEntry>();
   private currentSize = 0;
   private readonly maxSize =
-    Number(process.env.REMOTE_CACHE_MAX_MB || "1024") * 1024 * 1024; // MB -> bytes
+    Number(process.env.REMOTE_CACHE_MAX_MB || "256") * 1024 * 1024; // MB -> bytes
   private readonly ttl = Number(
     process.env.REMOTE_CACHE_TTL_MS || String(24 * 60 * 60 * 1000),
   ); // default 24h

@@ -1,8 +1,17 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { AnalyticsController } from "../controllers/analytics.controller";
 import { verifyToken } from "../middleware/auth.middleware";
 
 const router = Router();
+
+const publicEventLimiter = rateLimit({
+  windowMs: parseInt(process.env.PUBLIC_EVENT_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.PUBLIC_EVENT_RATE_LIMIT_MAX_REQUESTS || "2000"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many analytics events from this IP, please try again later.",
+});
 
 // ==================== PUBLIC ROUTES ====================
 
@@ -10,7 +19,7 @@ const router = Router();
  * POST /api/analytics/track
  * Track an analytics event (menu view, AR usage, cart interactions, etc.)
  */
-router.post("/track", AnalyticsController.trackEvent);
+router.post("/track", publicEventLimiter, AnalyticsController.trackEvent);
 
 // ==================== PROTECTED ROUTES (ORIGINAL DASHBOARD) ====================
 

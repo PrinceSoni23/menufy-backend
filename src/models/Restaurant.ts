@@ -96,6 +96,8 @@ const restaurantSchema = new Schema<IRestaurantDocument>(
 restaurantSchema.index({ ownerId: 1 });
 restaurantSchema.index({ publicUrl: 1 });
 restaurantSchema.index({ city: 1 });
+restaurantSchema.index({ ownerId: 1, isActive: 1, createdAt: -1 });
+restaurantSchema.index({ city: 1, isActive: 1 });
 
 const Restaurant = mongoose.model<IRestaurantDocument>(
   "Restaurant",

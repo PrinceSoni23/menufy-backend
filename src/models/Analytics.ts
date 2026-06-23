@@ -78,6 +78,9 @@ const analyticsSchema = new Schema<IAnalyticsDocument>(
 
 // Indexes for faster queries
 analyticsSchema.index({ restaurantId: 1, timestamp: -1 });
+analyticsSchema.index({ restaurantId: 1, eventType: 1, timestamp: -1 });
+analyticsSchema.index({ restaurantId: 1, sessionId: 1 });
+analyticsSchema.index({ restaurantId: 1, deviceId: 1 });
 analyticsSchema.index({ menuItemId: 1 });
 analyticsSchema.index({ deviceId: 1 });
 analyticsSchema.index({ eventType: 1 });

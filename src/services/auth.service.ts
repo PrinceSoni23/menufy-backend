@@ -1,5 +1,5 @@
 import bcryptjs from "bcryptjs";
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import { User } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
@@ -46,19 +46,26 @@ export class AuthService {
   static generateAccessToken(payload: IAuthPayload): string {
     const secret = this.getJWTSecret();
     const expiry = process.env.JWT_EXPIRY || "15m";
-    return jwt.sign(payload, secret, { expiresIn: expiry } as any);
+    return jwt.sign(payload, secret, {
+      expiresIn: expiry as SignOptions["expiresIn"],
+    });
   }
 
   static generateRefreshToken(payload: IAuthPayload): string {
     const secret = this.getJWTRefreshSecret();
     const expiry = process.env.JWT_REFRESH_EXPIRY || "7d";
-    return jwt.sign(payload, secret, { expiresIn: expiry } as any);
+    return jwt.sign(payload, secret, {
+      expiresIn: expiry as SignOptions["expiresIn"],
+    });
   }
 
   static verifyAccessToken(token: string): IAuthPayload {
     try {
       const secret = this.getJWTSecret();
       const decoded = jwt.verify(token, secret);
+      if (typeof decoded === "string") {
+        throw new AppError(401, "Invalid token");
+      }
       return decoded as IAuthPayload;
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {
@@ -74,6 +81,9 @@ export class AuthService {
     try {
       const secret = this.getJWTRefreshSecret();
       const decoded = jwt.verify(token, secret);
+      if (typeof decoded === "string") {
+        throw new AppError(401, "Invalid refresh token");
+      }
       return decoded as IAuthPayload;
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {

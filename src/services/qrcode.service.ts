@@ -16,7 +16,7 @@ export class QRCodeService {
   ): Promise<any> {
     // Verify ownership
     const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+    if (!restaurant || String(restaurant.ownerId) !== ownerId) {
       throw new AppError(
         403,
         "You do not have permission to generate QR code for this restaurant",
@@ -86,7 +86,7 @@ export class QRCodeService {
   static async getQRCode(restaurantId: string, ownerId: string): Promise<any> {
     // Verify ownership
     const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+    if (!restaurant || String(restaurant.ownerId) !== ownerId) {
       throw new AppError(
         403,
         "You do not have permission to view this QR code",
@@ -110,7 +110,7 @@ export class QRCodeService {
     ownerId: string,
   ): Promise<any> {
     const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+    if (!restaurant || String(restaurant.ownerId) !== ownerId) {
       throw new AppError(
         403,
         "You do not have permission to view this analytics",
@@ -156,8 +156,13 @@ export class QRCodeService {
     // Only fall back to sessionId when deviceId is not available.
     if (deviceId) {
       try {
-        const filter: any = { qrCodeId: qrCode._id, deviceId };
-        const setOnInsert: any = {
+        const filter = { qrCodeId: qrCode._id, deviceId };
+        const setOnInsert: {
+          qrCodeId: typeof qrCode._id;
+          deviceId: string;
+          createdAt: Date;
+          sessionId?: string;
+        } = {
           qrCodeId: qrCode._id,
           deviceId,
           createdAt: new Date(),
@@ -169,7 +174,7 @@ export class QRCodeService {
           setOnInsert.sessionId = sessionId;
         }
 
-        const res: any = await QRCodeDevice.updateOne(
+        const res = await QRCodeDevice.updateOne(
           filter,
           { $setOnInsert: setOnInsert, $set: { lastSeen: new Date() } },
           { upsert: true },
@@ -179,14 +184,14 @@ export class QRCodeService {
         if (res && (res.upsertedCount === 1 || res.upsertedId)) {
           qrCode.uniqueDevices = (qrCode.uniqueDevices || 0) + 1;
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         logger.warn(
-          `Failed to upsert QRCodeDevice for ${code} (device): ${err}`,
+          `Failed to upsert QRCodeDevice for ${code} (device): ${String(err)}`,
         );
       }
     } else if (sessionId) {
       try {
-        const res: any = await QRCodeDevice.updateOne(
+        const res = await QRCodeDevice.updateOne(
           { qrCodeId: qrCode._id, sessionId },
           {
             $setOnInsert: {
@@ -202,9 +207,9 @@ export class QRCodeService {
         if (res && (res.upsertedCount === 1 || res.upsertedId)) {
           qrCode.uniqueDevices = (qrCode.uniqueDevices || 0) + 1;
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         logger.warn(
-          `Failed to upsert QRCodeDevice for ${code} (session): ${err}`,
+          `Failed to upsert QRCodeDevice for ${code} (session): ${String(err)}`,
         );
       }
     }
@@ -219,7 +224,7 @@ export class QRCodeService {
   /**
    * Reset daily scan count (run at midnight)
    */
-  static async resetDailyScanCount(): Promise<any> {
+  static async resetDailyScanCount() {
     const result = await QRCodeModel.updateMany({}, { scansToday: 0 });
 
     logger.info(`Daily scan count reset for ${result.modifiedCount} QR codes`);
@@ -236,7 +241,7 @@ export class QRCodeService {
     appUrl?: string,
   ): Promise<any> {
     const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant || restaurant.ownerId.toString() !== ownerId) {
+    if (!restaurant || String(restaurant.ownerId) !== ownerId) {
       throw new AppError(403, "You do not have permission");
     }
 
@@ -280,7 +285,7 @@ export class QRCodeService {
   /**
    * Get restaurant by public URL (for public menu display)
    */
-  static async getRestaurantByPublicUrl(publicUrl: string): Promise<any> {
+  static async getRestaurantByPublicUrl(publicUrl: string) {
     const qrCode = await QRCodeModel.findOne({ publicUrl });
 
     if (!qrCode) {
@@ -289,6 +294,6 @@ export class QRCodeService {
 
     logger.info(`Retrieved restaurant for public URL: ${publicUrl}`);
 
-    return qrCode.toObject();
+    return qrCode.toObject() as Record<string, unknown>;
   }
 }

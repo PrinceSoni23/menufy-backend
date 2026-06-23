@@ -1,9 +1,26 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { verifyToken } from "../middleware/auth.middleware";
 import { QRCodeService } from "../services/qrcode.service";
 import { AppError } from "../middleware/errorHandler";
 
 const router = Router();
+
+const publicQrLimiter = rateLimit({
+  windowMs: parseInt(process.env.PUBLIC_QR_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.PUBLIC_QR_RATE_LIMIT_MAX_REQUESTS || "1200"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many QR requests from this IP, please try again later.",
+});
+
+const publicScanLimiter = rateLimit({
+  windowMs: parseInt(process.env.PUBLIC_SCAN_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.PUBLIC_SCAN_RATE_LIMIT_MAX_REQUESTS || "2000"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many scan events from this IP, please try again later.",
+});
 
 /**
  * POST /api/qrcode/generate
@@ -86,7 +103,7 @@ router.get("/:restaurantId/analytics", verifyToken, async (req, res, next) => {
  * GET /api/qrcode/public/:publicUrl
  * Get restaurant ID from public URL (PUBLIC - no auth required)
  */
-router.get("/public/:publicUrl", async (req, res, next) => {
+router.get("/public/:publicUrl", publicQrLimiter, async (req, res, next) => {
   try {
     const { publicUrl } = req.params;
 
@@ -106,7 +123,7 @@ router.get("/public/:publicUrl", async (req, res, next) => {
  * POST /api/qrcode/scan/:code
  * Track QR code scan
  */
-router.post("/scan/:code", async (req, res, next) => {
+router.post("/scan/:code", publicScanLimiter, async (req, res, next) => {
   try {
     const { code } = req.params;
     const { deviceId, sessionId } = req.body;

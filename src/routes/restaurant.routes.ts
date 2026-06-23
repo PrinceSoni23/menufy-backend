@@ -1,8 +1,21 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { RestaurantController } from "../controllers/restaurant.controller";
 import { verifyToken, verifyOwner } from "../middleware/auth.middleware";
 
 const router = Router();
+
+const publicRestaurantLimiter = rateLimit({
+  windowMs: parseInt(
+    process.env.PUBLIC_RESTAURANT_RATE_LIMIT_WINDOW_MS || "900000",
+  ),
+  max: parseInt(
+    process.env.PUBLIC_RESTAURANT_RATE_LIMIT_MAX_REQUESTS || "1200",
+  ),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many restaurant requests from this IP, please try again later.",
+});
 
 // ==================== PUBLIC ROUTES ====================
 /**
@@ -11,6 +24,7 @@ const router = Router();
  */
 router.get(
   "/public/:publicUrl",
+  publicRestaurantLimiter,
   (req, res, next) =>
     void RestaurantController.getPublicRestaurant(req, res, next),
 );
@@ -21,6 +35,7 @@ router.get(
  */
 router.get(
   "/qr/:qrcode",
+  publicRestaurantLimiter,
   (req, res, next) =>
     void RestaurantController.getRestaurantByQRCode(req, res, next),
 );
@@ -31,6 +46,7 @@ router.get(
  */
 router.get(
   "/search",
+  publicRestaurantLimiter,
   (req, res, next) =>
     void RestaurantController.searchRestaurants(req, res, next),
 );
@@ -41,6 +57,7 @@ router.get(
  */
 router.get(
   "/city/:city",
+  publicRestaurantLimiter,
   (req, res, next) =>
     void RestaurantController.getRestaurantsByCity(req, res, next),
 );
@@ -51,6 +68,7 @@ router.get(
  */
 router.post(
   "/:id/scan",
+  publicRestaurantLimiter,
   (req, res, next) =>
     void RestaurantController.incrementScanCount(req, res, next),
 );

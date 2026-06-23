@@ -108,8 +108,9 @@ const menuItemSchema = new Schema<IMenuItemDocument>(
 // Indexes for faster queries
 menuItemSchema.index({ restaurantId: 1 });
 menuItemSchema.index({ restaurantId: 1, category: 1 });
-menuItemSchema.index({ status: 1 });
-menuItemSchema.index({ conversionJobId: 1 });
+menuItemSchema.index({ restaurantId: 1, isActive: 1, displayOrder: 1 });
+menuItemSchema.index({ restaurantId: 1, category: 1, isActive: 1 });
+menuItemSchema.index({ restaurantId: 1, updatedAt: -1 });
 
 const MenuItem = mongoose.model<IMenuItemDocument>("MenuItem", menuItemSchema);
 

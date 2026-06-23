@@ -41,6 +41,7 @@ qrCodeDeviceSchema.index(
   { qrCodeId: 1, deviceId: 1 },
   { unique: true, sparse: true },
 );
+qrCodeDeviceSchema.index({ qrCodeId: 1, lastSeen: -1 });
 
 const QRCodeDevice = mongoose.model<IQrCodeDeviceDocument>(
   "QRCodeDevice",
