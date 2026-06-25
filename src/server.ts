@@ -30,6 +30,7 @@ import restaurantRoutes from "./routes/restaurant.routes";
 import menuRoutes from "./routes/menu.routes";
 import reviewRoutes from "./routes/review.routes";
 import analyticsRoutes from "./routes/analytics.routes";
+import orderRoutes from "./routes/order.routes";
 import qrcodeRoutes from "./routes/qrcode.routes";
 import uploadRoutes from "./routes/upload.routes";
 import mediaRoutes from "./routes/media.routes";
@@ -228,6 +229,8 @@ app.use("/api/menu", menuRoutes);
 app.use("/api/reviews", reviewRoutes);
 // Analytics routes
 app.use("/api/analytics", analyticsRoutes);
+// Order routes
+app.use("/api/orders", orderRoutes);
 // QR Code routes
 app.use("/api/qrcode", qrcodeRoutes);
 // Upload & Conversion routes

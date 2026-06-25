@@ -3,4 +3,5 @@ export { default as restaurantRoutes } from "./restaurant.routes";
 export { default as menuRoutes } from "./menu.routes";
 export { default as reviewRoutes } from "./review.routes";
 export { default as analyticsRoutes } from "./analytics.routes";
+export { default as orderRoutes } from "./order.routes";
 export { default as qrcodeRoutes } from "./qrcode.routes";

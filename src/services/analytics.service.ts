@@ -1418,11 +1418,48 @@ export class AnalyticsService {
           },
         },
         {
+          $addFields: {
+            effectiveLineItems: {
+              $cond: [
+                { $gt: [{ $size: { $ifNull: ["$lineItems", []] } }, 0] },
+                "$lineItems",
+                [
+                  {
+                    menuItemId: "$menuItemId",
+                    quantity: { $ifNull: ["$quantity", 1] },
+                    lineTotal: {
+                      $ifNull: [
+                        "$totalPrice",
+                        {
+                          $multiply: [
+                            { $ifNull: ["$quantity", 1] },
+                            { $ifNull: ["$unitPrice", 0] },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              ],
+            },
+          },
+        },
+        { $unwind: "$effectiveLineItems" },
+        {
+          $match: {
+            "effectiveLineItems.menuItemId": { $ne: null },
+          },
+        },
+        {
           $group: {
-            _id: "$menuItemId",
+            _id: "$effectiveLineItems.menuItemId",
             orders: { $sum: 1 },
-            quantity: { $sum: "$quantity" },
-            revenue: { $sum: "$totalPrice" },
+            quantity: {
+              $sum: { $ifNull: ["$effectiveLineItems.quantity", 1] },
+            },
+            revenue: {
+              $sum: { $ifNull: ["$effectiveLineItems.lineTotal", 0] },
+            },
           },
         },
       ]),

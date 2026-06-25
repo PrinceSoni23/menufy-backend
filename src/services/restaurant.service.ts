@@ -1,4 +1,4 @@
-import { MenuItem, QRCode, Restaurant } from "../models";
+import { Analytics, MenuItem, QRCode, Restaurant } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { IRestaurant } from "../types";
@@ -47,55 +47,66 @@ export class RestaurantService {
       59,
     );
 
-    const [totalMenuItems, qrCodes, modelViewStats] = await Promise.all([
-      MenuItem.countDocuments({ restaurantId: { $in: restaurantIds } }),
-      QRCode.find({ restaurantId: { $in: restaurantIds } })
-        .select("totalScans")
-        .lean(),
-      MenuItem.aggregate([
-        { $match: { restaurantId: { $in: restaurantIds } } },
-        {
-          $facet: {
-            currentMonth: [
-              {
-                $match: {
-                  createdAt: { $gte: currentMonthStart },
-                },
-              },
-              {
-                $group: {
-                  _id: null,
-                  total: { $sum: { $ifNull: ["$arViews", 0] } },
-                },
-              },
-            ],
-            previousMonth: [
-              {
-                $match: {
-                  createdAt: {
-                    $gte: previousMonthStart,
-                    $lte: previousMonthEnd,
+    const [totalMenuItems, qrCodes, menuItems, modelViewStats] =
+      await Promise.all([
+        MenuItem.countDocuments({ restaurantId: { $in: restaurantIds } }),
+        QRCode.find({ restaurantId: { $in: restaurantIds } })
+          .select("totalScans")
+          .lean(),
+        MenuItem.find({ restaurantId: { $in: restaurantIds } })
+          .select("arViews")
+          .lean(),
+        Analytics.aggregate([
+          { $match: { restaurantId: { $in: restaurantIds } } },
+          {
+            $facet: {
+              currentMonth: [
+                {
+                  $match: {
+                    eventType: "ar_view",
+                    timestamp: { $gte: currentMonthStart },
                   },
                 },
-              },
-              {
-                $group: {
-                  _id: null,
-                  total: { $sum: { $ifNull: ["$arViews", 0] } },
+                {
+                  $group: {
+                    _id: null,
+                    total: { $sum: 1 },
+                  },
                 },
-              },
-            ],
+              ],
+              previousMonth: [
+                {
+                  $match: {
+                    eventType: "ar_view",
+                    timestamp: {
+                      $gte: previousMonthStart,
+                      $lte: previousMonthEnd,
+                    },
+                  },
+                },
+                {
+                  $group: {
+                    _id: null,
+                    total: { $sum: 1 },
+                  },
+                },
+              ],
+            },
           },
-        },
-      ]),
-    ]);
+        ]),
+      ]);
 
     const totalQRScans = qrCodes.reduce(
       (sum, qrCode) => sum + (qrCode.totalScans || 0),
       0,
     );
+    const fallbackModelViews = menuItems.reduce(
+      (sum, menuItem) => sum + (menuItem.arViews || 0),
+      0,
+    );
 
-    const currentMonthViews = modelViewStats[0]?.currentMonth[0]?.total || 0;
+    const currentMonthViews =
+      modelViewStats[0]?.currentMonth[0]?.total || fallbackModelViews || 0;
     const previousMonthViews = modelViewStats[0]?.previousMonth[0]?.total || 0;
 
     // Calculate trend percentage

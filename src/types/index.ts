@@ -134,20 +134,38 @@ export interface IAnalytics {
 }
 
 // Order Types
-export interface IOrder {
-  restaurantId: ObjectId | string;
+export interface IOrderLineItem {
   menuItemId: ObjectId | string;
-  userId?: ObjectId | string;
-  sessionId: string;
+  name: string;
   quantity: number;
   unitPrice: number;
+  lineTotal: number;
+}
+
+export interface IOrder {
+  restaurantId: ObjectId | string;
+  menuItemId?: ObjectId | string;
+  userId?: ObjectId | string;
+  sessionId: string;
+  quantity?: number;
+  unitPrice?: number;
   totalPrice: number;
   currency: string;
+  lineItems?: IOrderLineItem[];
+  totalItems?: number;
+  orderNumber?: string;
+  customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
-  status: "pending" | "completed" | "cancelled";
+  customerRemark?: string;
+  status: "pending" | "confirmed" | "preparing" | "completed" | "cancelled";
+  source?: "legacy" | "guest_menu" | "owner_dashboard";
   paymentMethod?: string;
   notes?: string;
+  confirmedAt?: Date;
+  preparingAt?: Date;
+  completedAt?: Date;
+  cancelledAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
