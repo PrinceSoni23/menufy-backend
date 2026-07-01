@@ -44,4 +44,20 @@ if (process.env.NODE_ENV !== "production") {
   );
 }
 
+// Always log errors to console (useful for production stdout/stderr visibility)
+logger.add(
+  new winston.transports.Console({
+    level: "error",
+    stderrLevels: ["error"],
+    format: winston.format.combine(
+      winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+      winston.format.errors({ stack: true }),
+      winston.format.printf(({ timestamp, level, message, stack }) => {
+        const base = `${timestamp} [${level}]: ${message}`;
+        return stack ? `${base}\n${stack}` : base;
+      }),
+    ),
+  }),
+);
+
 export default logger;

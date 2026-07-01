@@ -27,6 +27,7 @@ import { cachedStaticMiddleware } from "./middleware/cachedStatic";
 
 // Routes
 import authRoutes from "./routes/auth.routes";
+import debugRoutes from "./routes/debug.routes";
 import restaurantRoutes from "./routes/restaurant.routes";
 import menuRoutes from "./routes/menu.routes";
 import reviewRoutes from "./routes/review.routes";
@@ -255,6 +256,12 @@ app.get("/debug/uploads-check", (req: Request, res: Response) => {
 // ==================== API ROUTES ====================
 // Auth routes
 app.use("/api/auth", authRoutes);
+
+// Conditional debug routes - enable temporarily via env: ENABLE_DEBUG_ROUTE=true
+if ((process.env.ENABLE_DEBUG_ROUTE || "false").toLowerCase() === "true") {
+  app.use("/api/debug", debugRoutes);
+  logger.info("Debug routes enabled: /api/debug/*");
+}
 
 // Subscription routes (plans are public; order/verify are protected internally)
 app.use("/api/subscriptions", subscriptionRoutes);
