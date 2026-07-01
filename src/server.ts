@@ -87,6 +87,7 @@ const authGetLimiter = rateLimit({
   message: "Too many requests. Please wait a moment and try again.",
   skip: (req: Request) => {
     if (process.env.NODE_ENV !== "production") return true;
+    return false;
   },
 });
 
