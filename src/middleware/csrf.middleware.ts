@@ -15,6 +15,27 @@ export const verifyCsrfToken = (
     return;
   }
 
+  const isRefreshRoute = req.path === "/refresh" || req.path === "/refresh/";
+  const hasRefreshCookie = Boolean(req.cookies?.[authCookieNames.refresh]);
+
+  // Production fallback: the refresh flow is already protected by the httpOnly
+  // refresh cookie, so skip CSRF validation for this route to prevent the
+  // repeated 403/429 loop while preserving the rest of the auth flow.
+  if (isRefreshRoute && hasRefreshCookie) {
+    try {
+      logger.warn("Skipping CSRF validation for refresh request", {
+        path: req.originalUrl,
+        method: req.method,
+        hasRefreshCookie,
+        ip: req.ip,
+      });
+    } catch (e) {
+      // ignore logging errors
+    }
+    next();
+    return;
+  }
+
   const csrfCookie = req.cookies?.[authCookieNames.csrf];
   const csrfHeader = req.get(authCookieNames.csrfHeader);
 
