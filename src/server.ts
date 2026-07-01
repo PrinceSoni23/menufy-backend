@@ -65,12 +65,29 @@ app.use(
 app.use(cookieParser());
 
 // ==================== RATE LIMITING ====================
+// Strict limiter for login/register attempts (prevents brute force)
 const authLimiter = rateLimit({
   windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || "900000"),
-  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS || "20"),
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS || "50"), // Increased from 20
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many login attempts, please try again later.",
+  skip: (req: Request) => {
+    // Skip rate limiting for safe GET requests (csrf, me endpoint)
+    return req.method === "GET";
+  },
+});
+
+// Lenient limiter for GET auth endpoints (csrf bootstrap, profile fetch)
+const authGetLimiter = rateLimit({
+  windowMs: 60000, // 1 minute window
+  max: 100, // Allow 100 GET requests per minute (prevents abuse but allows retries)
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests. Please wait a moment and try again.",
+  skip: (req: Request) => {
+    if (process.env.NODE_ENV !== "production") return true;
+  },
 });
 
 const limiter = rateLimit({
@@ -98,6 +115,7 @@ const limiter = rateLimit({
 
 app.use("/api/", limiter);
 app.use("/api/auth", authLimiter);
+app.use("/api/auth", authGetLimiter); // Lenient limiter for GET requests
 
 // ==================== WEBHOOK ROUTES ====================
 // Register BEFORE JSON/urlencoded body parsers so signature verification receives raw payloads.

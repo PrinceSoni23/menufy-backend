@@ -10,3 +10,5 @@ services:
         value: production
       - key: APP_URL
         value: https://menufy-wheat.vercel.app
+      - key: CORS_ORIGIN
+        value: https://menufy-wheat.vercel.app
