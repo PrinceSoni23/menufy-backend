@@ -20,6 +20,7 @@ interface CreateGuestOrderInput {
   customerName: string;
   customerPhone: string;
   customerRemark?: string;
+  customerCookingRequest?: string;
   items: GuestCheckoutItem[];
 }
 
@@ -46,6 +47,7 @@ export class OrderService {
       customerName,
       customerPhone,
       customerRemark,
+      customerCookingRequest,
     } = input;
 
     const normalizedItems = input.items
@@ -130,7 +132,10 @@ export class OrderService {
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
       customerRemark: customerRemark?.trim() || "",
-      notes: customerRemark?.trim() || "",
+      customerCookingRequest: customerCookingRequest?.trim() || "",
+      notes: [customerRemark?.trim(), customerCookingRequest?.trim()]
+        .filter(Boolean)
+        .join(" | "),
       status: "pending",
       source: "guest_menu",
     });

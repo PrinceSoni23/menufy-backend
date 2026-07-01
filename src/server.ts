@@ -11,6 +11,7 @@ import express, { Express, Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 
 // Database
 import connectDB from "./config/database";
@@ -34,6 +35,15 @@ import orderRoutes from "./routes/order.routes";
 import qrcodeRoutes from "./routes/qrcode.routes";
 import uploadRoutes from "./routes/upload.routes";
 import mediaRoutes from "./routes/media.routes";
+import subscriptionRoutes from "./routes/subscription.routes";
+import webhookRoutes from "./routes/webhook.routes";
+import { MenuController } from "./controllers/menu.controller";
+import { QRCodeService } from "./services/qrcode.service";
+import { RestaurantController } from "./controllers/restaurant.controller";
+import { AnalyticsController } from "./controllers/analytics.controller";
+import { verifyToken } from "./middleware/auth.middleware";
+import { requireActiveSubscription } from "./middleware/subscription.middleware";
+import { startBillingRepairJob } from "./jobs/billingRepairJob";
 
 const app: Express = express();
 
@@ -52,6 +62,7 @@ app.use(
     credentials: true,
   }),
 );
+app.use(cookieParser());
 
 // ==================== RATE LIMITING ====================
 const authLimiter = rateLimit({
@@ -87,6 +98,10 @@ const limiter = rateLimit({
 
 app.use("/api/", limiter);
 app.use("/api/auth", authLimiter);
+
+// ==================== WEBHOOK ROUTES ====================
+// Register BEFORE JSON/urlencoded body parsers so signature verification receives raw payloads.
+app.use("/api/webhooks", webhookRoutes);
 
 // ==================== BODY PARSING ====================
 app.use(express.json({ limit: "50mb" }));
@@ -221,20 +236,177 @@ app.get("/debug/uploads-check", (req: Request, res: Response) => {
 // ==================== API ROUTES ====================
 // Auth routes
 app.use("/api/auth", authRoutes);
-// Restaurant routes
-app.use("/api/restaurants", restaurantRoutes);
-// Menu routes
-app.use("/api/menu", menuRoutes);
-// Reviews routes
+
+// Subscription routes (plans are public; order/verify are protected internally)
+app.use("/api/subscriptions", subscriptionRoutes);
+
+// PUBLIC menu routes (no auth required)
+app.get(
+  "/api/menu/public/:restaurantId",
+  (req, res, next) =>
+    void MenuController.getPublicRestaurantMenu(req, res, next),
+);
+app.get(
+  "/api/menu/search/:restaurantId",
+  (req, res, next) => void MenuController.searchMenuItems(req, res, next),
+);
+app.get(
+  "/api/menu/:id",
+  (req, res, next) => void MenuController.getMenuItem(req, res, next),
+);
+app.get(
+  "/api/menu/:id/with-reviews",
+  (req, res, next) =>
+    void MenuController.getMenuItemWithReviews(req, res, next),
+);
+app.post(
+  "/api/menu/:id/view",
+  (req, res, next) => void MenuController.trackMenuItemView(req, res, next),
+);
+app.post(
+  "/api/menu/:id/ar-view",
+  (req, res, next) => void MenuController.trackARView(req, res, next),
+);
+app.get(
+  "/api/menu/categories/:restaurantId",
+  (req, res, next) => void MenuController.getMenuCategories(req, res, next),
+);
+app.get(
+  "/api/menu/restaurant/:restaurantId",
+  (req, res, next) => void MenuController.getRestaurantMenu(req, res, next),
+);
+
+// PUBLIC QR code routes (no auth required)
+const publicQrLimiter = rateLimit({
+  windowMs: parseInt(process.env.PUBLIC_QR_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.PUBLIC_QR_RATE_LIMIT_MAX_REQUESTS || "1200"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many QR requests from this IP, please try again later.",
+});
+
+const publicScanLimiter = rateLimit({
+  windowMs: parseInt(process.env.PUBLIC_SCAN_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.PUBLIC_SCAN_RATE_LIMIT_MAX_REQUESTS || "2000"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many scan events from this IP, please try again later.",
+});
+
+app.get(
+  "/api/qrcode/public/:publicUrl",
+  publicQrLimiter,
+  async (req, res, next) => {
+    try {
+      const { publicUrl } = req.params;
+      const qrCode = await QRCodeService.getRestaurantByPublicUrl(publicUrl);
+      res.status(200).json({
+        success: true,
+        message: "Restaurant found",
+        data: { restaurantId: qrCode.restaurantId, qrCode },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/api/qrcode/scan/:code",
+  publicScanLimiter,
+  async (req, res, next) => {
+    try {
+      const { code } = req.params;
+      const { deviceId, sessionId } = req.body;
+      const qrCode = await QRCodeService.trackQRCodeScan(
+        code,
+        deviceId,
+        sessionId,
+      );
+      res.status(200).json({
+        success: true,
+        message: "Scan tracked",
+        data: { qrCode },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// PUBLIC restaurant routes (no auth required)
+const publicRestaurantLimiter = rateLimit({
+  windowMs: parseInt(
+    process.env.PUBLIC_RESTAURANT_RATE_LIMIT_WINDOW_MS || "900000",
+  ),
+  max: parseInt(
+    process.env.PUBLIC_RESTAURANT_RATE_LIMIT_MAX_REQUESTS || "1200",
+  ),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests from this IP, please try again later.",
+});
+
+app.get(
+  "/api/restaurants/public/:publicUrl",
+  publicRestaurantLimiter,
+  (req, res, next) =>
+    void RestaurantController.getPublicRestaurant(req, res, next),
+);
+
+// PUBLIC analytics route (no auth required)
+const publicEventLimiter = rateLimit({
+  windowMs: parseInt(process.env.PUBLIC_EVENT_RATE_LIMIT_WINDOW_MS || "900000"),
+  max: parseInt(process.env.PUBLIC_EVENT_RATE_LIMIT_MAX_REQUESTS || "5000"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many analytics events from this IP, please try again later.",
+});
+
+app.post(
+  "/api/analytics/track",
+  publicEventLimiter,
+  (req, res, next) => void AnalyticsController.trackEvent(req, res, next),
+);
+
+// Protected premium routes — require active subscription
+app.use(
+  "/api/restaurants",
+  verifyToken,
+  requireActiveSubscription,
+  restaurantRoutes,
+);
+// PROTECTED menu routes only (create, update, delete)
+app.post(
+  "/api/menu",
+  verifyToken,
+  requireActiveSubscription,
+  (req, res, next) => void MenuController.createMenuItem(req, res, next),
+);
+app.put(
+  "/api/menu/:id",
+  verifyToken,
+  requireActiveSubscription,
+  (req, res, next) => void MenuController.updateMenuItem(req, res, next),
+);
+app.delete(
+  "/api/menu/:id",
+  verifyToken,
+  requireActiveSubscription,
+  (req, res, next) => void MenuController.deleteMenuItem(req, res, next),
+);
+app.use(
+  "/api/analytics",
+  verifyToken,
+  requireActiveSubscription,
+  analyticsRoutes,
+);
+app.use("/api/qrcode", verifyToken, requireActiveSubscription, qrcodeRoutes);
+app.use("/api/upload", verifyToken, requireActiveSubscription, uploadRoutes);
+
+// Semi-public routes (auth optional or different access)
 app.use("/api/reviews", reviewRoutes);
-// Analytics routes
-app.use("/api/analytics", analyticsRoutes);
-// Order routes
 app.use("/api/orders", orderRoutes);
-// QR Code routes
-app.use("/api/qrcode", qrcodeRoutes);
-// Upload & Conversion routes
-app.use("/api/upload", uploadRoutes);
 // Media proxy/cache routes
 app.use("/api/media", mediaRoutes);
 
@@ -275,6 +447,7 @@ async function startServer() {
     // Start background jobs
     // DISABLED: 3D conversion feature removed - owners now upload 3D models directly
     // startConversionScheduler();
+    startBillingRepairJob();
 
     logger.info("Starting server on port " + PORT);
     const server = app.listen(PORT, "0.0.0.0", () => {

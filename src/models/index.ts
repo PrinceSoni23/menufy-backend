@@ -7,6 +7,9 @@ import ConversionJob from "./ConversionJob";
 import Analytics from "./Analytics";
 import Review from "./Review";
 import Order from "./Order";
+import { Payment } from "./Payment";
+import { Subscription } from "./Subscription";
+import { WebhookLog } from "./WebhookLog";
 
 export {
   User,
@@ -18,4 +21,7 @@ export {
   Analytics,
   Review,
   Order,
+  Payment,
+  Subscription,
+  WebhookLog,
 };

@@ -51,11 +51,30 @@ const userSchema = new Schema<IUserDocument>(
     },
     subscriptionStatus: {
       type: String,
-      enum: ["active", "expired"],
+      enum: ["active", "expired", "cancelled", "pending"],
       default: "expired",
+    },
+    subscriptionPlan: {
+      type: String,
+      enum: ["monthly_inr", "monthly_usd", "yearly_inr", "yearly_usd", null],
+      default: null,
+    },
+    subscriptionStartDate: {
+      type: Date,
+      default: null,
     },
     subscriptionEndDate: {
       type: Date,
+      default: null,
+    },
+    paymentGateway: {
+      type: String,
+      enum: ["razorpay", "paypal", "payu", null],
+      default: null,
+    },
+    activeSubscriptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Subscription",
       default: null,
     },
     emailVerified: {

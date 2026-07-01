@@ -24,6 +24,7 @@ interface IOrderDocument extends Document {
   customerEmail?: string;
   customerPhone?: string;
   customerRemark?: string;
+  customerCookingRequest?: string;
   status: "pending" | "confirmed" | "preparing" | "completed" | "cancelled";
   source: "legacy" | "guest_menu" | "owner_dashboard";
   paymentMethod?: string;
@@ -139,6 +140,10 @@ const orderSchema = new Schema<IOrderDocument>(
       trim: true,
     },
     customerRemark: {
+      type: String,
+      trim: true,
+    },
+    customerCookingRequest: {
       type: String,
       trim: true,
     },

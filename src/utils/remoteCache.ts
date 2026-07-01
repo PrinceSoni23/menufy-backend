@@ -39,8 +39,10 @@ class RemoteCache {
     try {
       const resp = await axios.get(url, { responseType: "arraybuffer" });
       const buf = Buffer.from(resp.data);
-      const contentType =
-        resp.headers["content-type"] || "application/octet-stream";
+      // Normalize header value to string to satisfy RemoteCacheEntry type
+      const contentType = String(
+        resp.headers["content-type"] ?? "application/octet-stream",
+      );
 
       // Evict if needed
       if (buf.length + this.currentSize > this.maxSize) {

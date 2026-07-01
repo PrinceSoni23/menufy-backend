@@ -1,5 +1,6 @@
 import bcryptjs from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
+import crypto from "crypto";
 import { User } from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
@@ -9,6 +10,7 @@ interface IAuthPayload {
   userId: string;
   email: string;
   role: string;
+  tokenVersion?: string;
 }
 
 export class AuthService {
@@ -57,6 +59,10 @@ export class AuthService {
     return jwt.sign(payload, secret, {
       expiresIn: expiry as SignOptions["expiresIn"],
     });
+  }
+
+  static generateSessionNonce(): string {
+    return crypto.randomBytes(24).toString("hex");
   }
 
   static verifyAccessToken(token: string): IAuthPayload {
@@ -119,7 +125,7 @@ export class AuthService {
       businessName: data.businessName.trim(),
       role: "owner",
       plan: "free",
-      subscriptionStatus: "active",
+      subscriptionStatus: "expired",
       emailVerified: false,
       lastLogin: new Date(),
       notifications: { email: true, push: true, analytics: true },
@@ -131,6 +137,7 @@ export class AuthService {
       userId: user._id!.toString(),
       email: user.email,
       role: user.role,
+      tokenVersion: this.generateSessionNonce(),
     };
 
     const accessToken = this.generateAccessToken(payload);
@@ -147,6 +154,8 @@ export class AuthService {
         businessName: user.businessName,
         role: user.role,
         plan: user.plan,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionEndDate: user.subscriptionEndDate,
       },
       accessToken,
       refreshToken,
@@ -176,6 +185,7 @@ export class AuthService {
       userId: user._id!.toString(),
       email: user.email,
       role: user.role,
+      tokenVersion: this.generateSessionNonce(),
     };
 
     const accessToken = this.generateAccessToken(payload);
@@ -192,6 +202,8 @@ export class AuthService {
         businessName: user.businessName,
         role: user.role,
         plan: user.plan,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionEndDate: user.subscriptionEndDate,
       },
       accessToken,
       refreshToken,
@@ -210,13 +222,14 @@ export class AuthService {
       userId: user._id!.toString(),
       email: user.email,
       role: user.role,
+      tokenVersion: this.generateSessionNonce(),
     };
 
     const newAccessToken = this.generateAccessToken(newPayload);
 
     return {
       accessToken: newAccessToken,
-      refreshToken,
+      refreshToken: this.generateRefreshToken(newPayload),
     };
   }
 
@@ -224,7 +237,7 @@ export class AuthService {
     userId: string,
   ): Promise<Partial<IUser> & { _id?: string }> {
     const user = await User.findById(userId).select(
-      "email firstName lastName businessName role plan subscriptionStatus -passwordHash",
+      "email firstName lastName businessName role plan subscriptionStatus",
     );
 
     if (!user) {

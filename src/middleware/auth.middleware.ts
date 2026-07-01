@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { AppError } from "./errorHandler";
 import { AuthService } from "../services/auth.service";
 import { IJWTPayload } from "../types";
+import { authCookieNames } from "../utils/authCookies";
 
 // Extend Express Request to include user
 declare global {
@@ -14,8 +15,7 @@ declare global {
 }
 
 /**
- * Middleware to verify JWT token from Authorization header
- * Expected format: Bearer <token>
+ * Middleware to verify JWT token from secure cookie or Authorization header.
  */
 export const verifyToken = (
   req: Request,
@@ -23,15 +23,17 @@ export const verifyToken = (
   next: NextFunction,
 ): void => {
   try {
-    // Get token from Authorization header
     const authHeader = req.headers.authorization;
+    const cookieToken = req.cookies?.[authCookieNames.access];
+    const token =
+      cookieToken ||
+      (authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : undefined);
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      throw new AppError(401, "Missing or invalid authorization header");
+    if (!token) {
+      throw new AppError(401, "Missing authentication token");
     }
-
-    // Extract token
-    const token = authHeader.substring(7); // Remove "Bearer " prefix
 
     // Verify token
     const payload = AuthService.verifyAccessToken(token);
@@ -72,9 +74,14 @@ export const optionalVerifyToken = (
 ): void => {
   try {
     const authHeader = req.headers.authorization;
+    const cookieToken = req.cookies?.[authCookieNames.access];
+    const token =
+      cookieToken ||
+      (authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : undefined);
 
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.substring(7);
+    if (token) {
       const payload = AuthService.verifyAccessToken(token);
       req.user = {
         userId: payload.userId,

@@ -174,8 +174,8 @@ node scripts/migrate-urls.js
    - 8 items with relative model3DUrl
 
 🔄 Updating imageUrl2D paths...
-   ✓ Pizza Margherita: /uploads/images/abc123.jpg → https://api.menuar.com/uploads/images/abc123.jpg
-   ✓ Pasta Carbonara: /uploads/images/def456.jpg → https://api.menuar.com/uploads/images/def456.jpg
+   ✓ Pizza Margherita: /uploads/images/abc123.jpg → https://api.menuffy.com/uploads/images/abc123.jpg
+   ✓ Pasta Carbonara: /uploads/images/def456.jpg → https://api.menuffy.com/uploads/images/def456.jpg
    ...
 
 ✅ Successfully updated 23 entries

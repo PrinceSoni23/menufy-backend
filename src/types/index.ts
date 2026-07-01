@@ -8,10 +8,19 @@ export interface IUser {
   lastName: string;
   businessName: string;
   avatar?: string;
-  role: "owner" | "customer";
+  role: "owner" | "customer" | "admin";
   plan: "free" | "pro" | "enterprise";
-  subscriptionStatus: "active" | "expired";
-  subscriptionEndDate?: Date;
+  subscriptionStatus: "active" | "expired" | "cancelled" | "pending";
+  subscriptionPlan?:
+    | "monthly_inr"
+    | "monthly_usd"
+    | "yearly_inr"
+    | "yearly_usd"
+    | null;
+  subscriptionStartDate?: Date | null;
+  subscriptionEndDate?: Date | null;
+  paymentGateway?: "razorpay" | "paypal" | "payu" | null;
+  activeSubscriptionId?: import("mongoose").ObjectId | null;
   emailVerified: boolean;
   lastLogin: Date;
   createdAt: Date;
@@ -158,6 +167,7 @@ export interface IOrder {
   customerEmail?: string;
   customerPhone?: string;
   customerRemark?: string;
+  customerCookingRequest?: string;
   status: "pending" | "confirmed" | "preparing" | "completed" | "cancelled";
   source?: "legacy" | "guest_menu" | "owner_dashboard";
   paymentMethod?: string;
@@ -175,8 +185,8 @@ export interface IJWTPayload {
   userId: string;
   email: string;
   role: string;
-  iat: number;
-  exp: number;
+  iat?: number;
+  exp?: number;
 }
 
 // API Response Types
