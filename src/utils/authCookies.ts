@@ -14,7 +14,8 @@ function baseCookieOptions(maxAge: number) {
   return {
     httpOnly: true,
     secure: isSecureCookie(),
-    sameSite: "lax" as const,
+    // For cross-site frontends (production), cookies must use SameSite=None
+    sameSite: isSecureCookie() ? ("none" as const) : ("lax" as const),
     path: "/",
     maxAge,
   };
@@ -54,7 +55,7 @@ export function setAuthCookies(
   res.cookie(CSRF_COOKIE, params.csrfToken, {
     httpOnly: false,
     secure: isSecureCookie(),
-    sameSite: "lax",
+    sameSite: isSecureCookie() ? ("none" as const) : ("lax" as const),
     path: "/",
     maxAge: refreshMaxAge,
   });
@@ -69,7 +70,7 @@ export function setCsrfCookie(res: Response, csrfToken: string): void {
   res.cookie(CSRF_COOKIE, csrfToken, {
     httpOnly: false,
     secure: isSecureCookie(),
-    sameSite: "lax",
+    sameSite: isSecureCookie() ? ("none" as const) : ("lax" as const),
     path: "/",
     maxAge: refreshMaxAge,
   });
@@ -81,7 +82,7 @@ export function clearAuthCookies(res: Response): void {
   res.clearCookie(CSRF_COOKIE, {
     httpOnly: false,
     secure: isSecureCookie(),
-    sameSite: "lax",
+    sameSite: isSecureCookie() ? ("none" as const) : ("lax" as const),
     path: "/",
   });
 }
