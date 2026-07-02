@@ -5,6 +5,56 @@ import logger from "../utils/logger";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+function getTrustedFrontendOrigins(): string[] {
+  const configuredOrigins = [
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+    process.env.CLIENT_ORIGIN,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ]
+    .filter(Boolean)
+    .flatMap(value => value!.split(","))
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  const normalizedOrigins = configuredOrigins.map(origin => {
+    try {
+      return new URL(origin).origin;
+    } catch {
+      return origin.replace(/\/+$/, "").toLowerCase();
+    }
+  });
+
+  return Array.from(new Set(normalizedOrigins));
+}
+
+function isTrustedFrontendOrigin(req: Request): boolean {
+  const requestOrigin = req.get("origin") || req.get("referer") || "";
+  if (!requestOrigin) {
+    return false;
+  }
+
+  const trustedOrigins = getTrustedFrontendOrigins();
+  if (trustedOrigins.length === 0) {
+    return false;
+  }
+
+  try {
+    const normalizedRequestOrigin = new URL(requestOrigin).origin;
+    return trustedOrigins.some(trustedOrigin => {
+      try {
+        return normalizedRequestOrigin === new URL(trustedOrigin).origin;
+      } catch {
+        return normalizedRequestOrigin === trustedOrigin;
+      }
+    });
+  } catch {
+    return trustedOrigins.some(
+      trustedOrigin => requestOrigin === trustedOrigin,
+    );
+  }
+}
+
 export const verifyCsrfToken = (
   req: Request,
   res: Response,
@@ -16,37 +66,45 @@ export const verifyCsrfToken = (
   }
 
   const normalizedPath = req.path.replace(/\/+$/, "") || "/";
-  const isRefreshRoute = normalizedPath === "/refresh";
-  const isAuthRoute = ["/login", "/register", "/refresh"].includes(
+  const isCrossSiteAuthRoute = ["/login", "/register", "/refresh"].includes(
     normalizedPath,
   );
-  const hasRefreshCookie = Boolean(req.cookies?.[authCookieNames.refresh]);
+  const isTrustedFrontendRequest = isTrustedFrontendOrigin(req);
+  const csrfCookie = req.cookies?.[authCookieNames.csrf];
+  const csrfHeader = req.get(authCookieNames.csrfHeader);
+  const hasValidCsrfPair = Boolean(
+    csrfCookie && csrfHeader && csrfCookie === csrfHeader,
+  );
 
-  // Production fallback: cross-site auth flows can fail CSRF cookie validation
-  // even when the browser is sending a valid token, so skip it for the auth
-  // endpoints that already rely on cookie-based session state.
+  // Allow trusted frontend-origin auth requests in production when the browser
+  // cannot reliably provide a matching CSRF cookie/header pair during the
+  // login/register/refresh flow. This keeps the login page working without
+  // weakening CSRF protection for unrelated pages or routes.
   if (
-    (isRefreshRoute && hasRefreshCookie) ||
-    (isAuthRoute && process.env.NODE_ENV === "production")
+    process.env.NODE_ENV === "production" &&
+    isCrossSiteAuthRoute &&
+    isTrustedFrontendRequest &&
+    !hasValidCsrfPair
   ) {
     try {
-      logger.warn("Skipping CSRF validation for auth request", {
-        path: req.originalUrl,
-        method: req.method,
-        route: normalizedPath,
-        hasRefreshCookie,
-        nodeEnv: process.env.NODE_ENV,
-        ip: req.ip,
-      });
+      logger.warn(
+        "Bypassing CSRF validation for trusted frontend auth request",
+        {
+          path: req.originalUrl,
+          method: req.method,
+          route: normalizedPath,
+          origin: req.get("origin") || null,
+          referer: req.get("referer") || null,
+          nodeEnv: process.env.NODE_ENV,
+          ip: req.ip,
+        },
+      );
     } catch (e) {
       // ignore logging errors
     }
     next();
     return;
   }
-
-  const csrfCookie = req.cookies?.[authCookieNames.csrf];
-  const csrfHeader = req.get(authCookieNames.csrfHeader);
 
   if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
     // Enhanced logging to help diagnose cross-site cookie/header issues in production
