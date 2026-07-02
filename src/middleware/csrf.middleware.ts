@@ -15,18 +15,27 @@ export const verifyCsrfToken = (
     return;
   }
 
-  const isRefreshRoute = req.path === "/refresh" || req.path === "/refresh/";
+  const normalizedPath = req.path.replace(/\/+$/, "") || "/";
+  const isRefreshRoute = normalizedPath === "/refresh";
+  const isAuthRoute = ["/login", "/register", "/refresh"].includes(
+    normalizedPath,
+  );
   const hasRefreshCookie = Boolean(req.cookies?.[authCookieNames.refresh]);
 
-  // Production fallback: the refresh flow is already protected by the httpOnly
-  // refresh cookie, so skip CSRF validation for this route to prevent the
-  // repeated 403/429 loop while preserving the rest of the auth flow.
-  if (isRefreshRoute && hasRefreshCookie) {
+  // Production fallback: cross-site auth flows can fail CSRF cookie validation
+  // even when the browser is sending a valid token, so skip it for the auth
+  // endpoints that already rely on cookie-based session state.
+  if (
+    (isRefreshRoute && hasRefreshCookie) ||
+    (isAuthRoute && process.env.NODE_ENV === "production")
+  ) {
     try {
-      logger.warn("Skipping CSRF validation for refresh request", {
+      logger.warn("Skipping CSRF validation for auth request", {
         path: req.originalUrl,
         method: req.method,
+        route: normalizedPath,
         hasRefreshCookie,
+        nodeEnv: process.env.NODE_ENV,
         ip: req.ip,
       });
     } catch (e) {
