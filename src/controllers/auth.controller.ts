@@ -109,6 +109,20 @@ export class AuthController {
         csrfToken,
       });
 
+      // Temporary debug logging: capture outgoing Set-Cookie headers to diagnose
+      // cross-site cookie issues in production. Remove after debugging.
+      try {
+        const setCookieHeader = (res as any).getHeader
+          ? (res as any).getHeader("Set-Cookie")
+          : (res as any).getHeaders?.()["set-cookie"];
+        logger.info("Outgoing Set-Cookie headers (login)", {
+          setCookieHeader,
+          nodeEnv: process.env.NODE_ENV,
+        });
+      } catch (e) {
+        logger.warn("Failed to read Set-Cookie headers (login)", { error: e });
+      }
+
       res.status(200).json({
         success: true,
         message: "Login successful",

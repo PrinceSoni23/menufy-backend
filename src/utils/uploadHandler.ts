@@ -53,11 +53,7 @@ if (process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME) {
 const memoryStorage = multer.memoryStorage();
 
 // File filter - only allow images
-const fileFilter = (
-  req: Request,
-  file: MulterFile,
-  cb: FileFilterCallback,
-) => {
+const fileFilter = (req: Request, file: MulterFile, cb: FileFilterCallback) => {
   const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
   if (allowedMimes.includes(file.mimetype)) {
