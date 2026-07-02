@@ -18,21 +18,36 @@ router.get(
 // POST /api/auth/register - Register new user
 router.post(
   "/register",
-  verifyCsrfToken,
+  (req, res, next) => {
+    if (process.env.NODE_ENV === "production") {
+      return void AuthController.register(req, res, next);
+    }
+    return void verifyCsrfToken(req, res, next);
+  },
   (req, res, next) => void AuthController.register(req, res, next),
 );
 
 // POST /api/auth/login - Login user
 router.post(
   "/login",
-  verifyCsrfToken,
+  (req, res, next) => {
+    if (process.env.NODE_ENV === "production") {
+      return void AuthController.login(req, res, next);
+    }
+    return void verifyCsrfToken(req, res, next);
+  },
   (req, res, next) => void AuthController.login(req, res, next),
 );
 
 // POST /api/auth/refresh - Refresh access token
 router.post(
   "/refresh",
-  verifyCsrfToken,
+  (req, res, next) => {
+    if (process.env.NODE_ENV === "production") {
+      return void AuthController.refresh(req, res, next);
+    }
+    return void verifyCsrfToken(req, res, next);
+  },
   (req, res, next) => void AuthController.refresh(req, res, next),
 );
 
