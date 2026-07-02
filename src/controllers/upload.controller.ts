@@ -1,4 +1,18 @@
 import { Request, Response, NextFunction } from "express";
+
+// Local Multer file type to avoid relying on global module augmentation
+export type MulterFile = {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+  stream?: NodeJS.ReadableStream;
+};
 import { ConversionService } from "../services/conversion.service";
 import { MenuService } from "../services/menu.service";
 import {
@@ -19,7 +33,7 @@ export class UploadController {
    * Upload 2D image for a menu item (no auto-conversion)
    */
   static async uploadMenuItemImage(
-    req: Request & { file?: Express.Multer.File },
+    req: Request & { file?: MulterFile },
     res: Response,
     next: NextFunction,
   ) {
@@ -117,7 +131,7 @@ export class UploadController {
    * Upload 3D model for a menu item
    */
   static async upload3DModel(
-    req: Request & { file?: Express.Multer.File },
+    req: Request & { file?: MulterFile },
     res: Response,
     next: NextFunction,
   ) {

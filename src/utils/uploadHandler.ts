@@ -3,6 +3,20 @@ import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import multer, { FileFilterCallback } from "multer";
 import { Request } from "express";
+
+// Local Multer file type to avoid relying on global module augmentation
+export type MulterFile = {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+  stream?: NodeJS.ReadableStream;
+};
 import logger from "./logger";
 import { fileCache } from "./fileCache";
 import { v2 as cloudinary } from "cloudinary";
@@ -41,7 +55,7 @@ const memoryStorage = multer.memoryStorage();
 // File filter - only allow images
 const fileFilter = (
   req: Request,
-  file: Express.Multer.File,
+  file: MulterFile,
   cb: FileFilterCallback,
 ) => {
   const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -56,7 +70,7 @@ const fileFilter = (
 // File filter for 3D models
 const fileFilter3D = (
   req: Request,
-  file: Express.Multer.File,
+  file: MulterFile,
   cb: FileFilterCallback,
 ) => {
   const allowedMimes = [
@@ -178,7 +192,7 @@ export function resolvePublicBaseUrl(req?: Request): string {
 /**
  * Upload image file
  */
-export async function uploadImage(file: Express.Multer.File): Promise<{
+export async function uploadImage(file: MulterFile): Promise<{
   filename: string;
   path: string;
   size: number;
@@ -219,7 +233,7 @@ export async function uploadImage(file: Express.Multer.File): Promise<{
   };
 }
 
-export async function uploadModel(file: Express.Multer.File): Promise<{
+export async function uploadModel(file: MulterFile): Promise<{
   filename: string;
   path: string;
   size: number;
