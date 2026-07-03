@@ -21,6 +21,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@types/nodemailer": "^8.0.1",
     "axios": "^1.18.1",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^1.40.0",
@@ -35,6 +36,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.5.0",
     "multer": "^2.1.1",
+    "nodemailer": "^9.0.3",
     "qrcode": "^1.5.3",
     "razorpay": "^2.9.6",
     "uuid": "^9.0.1",

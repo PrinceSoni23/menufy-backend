@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AuthService } from "../services/auth.service";
+import { PasswordResetService } from "../services/password-reset.service";
 import { AppError } from "../middleware/errorHandler";
 import Joi from "joi";
 import logger from "../utils/logger";
@@ -22,6 +23,27 @@ const registerSchema = Joi.object({
 const loginSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().required(),
+});
+
+const forgotPasswordSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
+
+const verifyOTPSchema = Joi.object({
+  email: Joi.string().email().required(),
+  otp: Joi.string().length(6).required(),
+});
+
+const resetPasswordSchema = Joi.object({
+  email: Joi.string().email().required(),
+  resetToken: Joi.string().required(),
+  newPassword: Joi.string().min(8).required(),
+  confirmPassword: Joi.string().min(8).required(),
+}).custom((value, helpers) => {
+  if (value.newPassword !== value.confirmPassword) {
+    throw new Error("Passwords do not match");
+  }
+  return value;
 });
 
 export class AuthController {
@@ -204,6 +226,99 @@ export class AuthController {
       res.status(200).json({
         success: true,
         message: "Logged out successfully",
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/auth/forgot-password
+   * Request password reset - generates OTP and sends email
+   */
+  static async forgotPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { error, value } = forgotPasswordSchema.validate(req.body, {
+        abortEarly: false,
+        stripUnknown: true,
+      });
+
+      if (error) {
+        const messages = error.details.map(d => d.message);
+        throw new AppError(400, messages.join(", "));
+      }
+
+      const result = await PasswordResetService.requestPasswordReset(
+        value.email,
+      );
+
+      res.status(200).json({
+        success: result.success,
+        message: result.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/auth/verify-otp
+   * Verify OTP and return reset token
+   */
+  static async verifyOTP(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { error, value } = verifyOTPSchema.validate(req.body, {
+        abortEarly: false,
+        stripUnknown: true,
+      });
+
+      if (error) {
+        const messages = error.details.map(d => d.message);
+        throw new AppError(400, messages.join(", "));
+      }
+
+      const result = await PasswordResetService.verifyOTP(
+        value.email,
+        value.otp,
+      );
+
+      res.status(200).json({
+        success: result.success,
+        message: result.message,
+        data: {
+          resetToken: result.resetToken,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/auth/reset-password
+   * Reset password with valid reset token
+   */
+  static async resetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { error, value } = resetPasswordSchema.validate(req.body, {
+        abortEarly: false,
+        stripUnknown: true,
+      });
+
+      if (error) {
+        const messages = error.details.map(d => d.message);
+        throw new AppError(400, messages.join(", "));
+      }
+
+      const result = await PasswordResetService.resetPassword(
+        value.email,
+        value.resetToken,
+        value.newPassword,
+      );
+
+      res.status(200).json({
+        success: result.success,
+        message: result.message,
       });
     } catch (error) {
       next(error);
