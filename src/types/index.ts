@@ -149,6 +149,8 @@ export interface IOrderLineItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  imageUrl2D?: string;
+  imageUrl?: string;
 }
 
 export interface IOrder {

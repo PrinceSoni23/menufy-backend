@@ -79,7 +79,7 @@ export class OrderService {
       restaurantId,
       isActive: true,
     })
-      .select("_id name price")
+      .select("_id name price imageUrl2D")
       .lean();
 
     if (menuItems.length !== uniqueMenuItemIds.length) {
@@ -108,6 +108,7 @@ export class OrderService {
         quantity: item.quantity,
         unitPrice,
         lineTotal,
+        imageUrl2D: String(menuItem.imageUrl2D || ""),
       };
     });
 

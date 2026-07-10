@@ -6,6 +6,8 @@ interface IOrderLineItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  imageUrl2D?: string;
+  imageUrl?: string;
 }
 
 interface IOrderDocument extends Document {
@@ -63,6 +65,14 @@ const orderLineItemSchema = new Schema<IOrderLineItem>(
       type: Number,
       required: true,
       min: 0,
+    },
+    imageUrl2D: {
+      type: String,
+      default: "",
+    },
+    imageUrl: {
+      type: String,
+      default: "",
     },
   },
   { _id: false },
