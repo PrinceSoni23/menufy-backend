@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { upload } from "../utils/uploadHandler";
 import rateLimit from "express-rate-limit";
 import { RestaurantController } from "../controllers/restaurant.controller";
 import { verifyToken, verifyOwner } from "../middleware/auth.middleware";
@@ -157,6 +158,19 @@ router.get(
   verifyOwner,
   (req, res, next) =>
     void RestaurantController.getRestaurantStats(req, res, next),
+);
+
+/**
+ * POST /api/restaurants/:id/upload-image
+ * Upload restaurant image (owner only)
+ */
+router.post(
+  "/:id/upload-image",
+  verifyToken,
+  verifyOwner,
+  upload.single("image"),
+  (req, res, next) =>
+    void RestaurantController.uploadRestaurantImage(req, res, next),
 );
 
 export default router;

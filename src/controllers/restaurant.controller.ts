@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { RestaurantService } from "../services/restaurant.service";
+import { Restaurant } from "../models";
+import { uploadImage } from "../utils/uploadHandler";
 import { AppError } from "../middleware/errorHandler";
 import { validateObjectId } from "../utils/validation";
 import Joi from "joi";
@@ -367,6 +369,55 @@ export class RestaurantController {
         success: true,
         message: "Restaurant stats retrieved successfully",
         data: stats,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/restaurants/:id/upload-image
+   * Upload or replace restaurant image (owner only)
+   */
+  static async uploadRestaurantImage(
+    req: Request & { file?: any },
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      if (!req.user) {
+        throw new AppError(401, "Authentication required");
+      }
+
+      const { id } = req.params;
+
+      validateObjectId(id);
+
+      // Multer should have populated req.file
+      if (!req.file) {
+        throw new AppError(400, "No image file provided");
+      }
+
+      // Verify ownership
+      const restaurant = await Restaurant.findById(id);
+      if (!restaurant || restaurant.ownerId.toString() !== req.user.userId) {
+        throw new AppError(
+          403,
+          "You do not have permission to upload images for this restaurant",
+        );
+      }
+
+      // Use existing upload helper to store file (supports Cloudinary or disk)
+      const uploaded = await uploadImage(req.file as any);
+
+      // Update restaurant record with public URL
+      restaurant.imageUrl = uploaded.path || uploaded.filename;
+      await restaurant.save();
+
+      res.status(201).json({
+        success: true,
+        message: "Restaurant image uploaded successfully",
+        data: { imageUrl: uploaded.path || uploaded.filename },
       });
     } catch (error) {
       next(error);
