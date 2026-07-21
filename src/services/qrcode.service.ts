@@ -1,5 +1,10 @@
 import QRCode from "qrcode";
-import { QRCode as QRCodeModel, Restaurant, QRCodeDevice } from "../models";
+import {
+  QRCode as QRCodeModel,
+  Restaurant,
+  QRCodeDevice,
+  MenuItem,
+} from "../models";
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { generateShortCode } from "../utils/urlGenerator";
@@ -280,6 +285,42 @@ export class QRCodeService {
       logger.error(`Failed to regenerate QR code: ${error}`);
       throw new AppError(500, "Failed to regenerate QR code");
     }
+  }
+
+  /**
+   * Get a complete public menu payload in one request for the public menu page.
+   */
+  static async getPublicMenuPageData(publicUrl: string) {
+    const qrCode = await QRCodeModel.findOne({ publicUrl }).lean();
+
+    if (!qrCode) {
+      throw new AppError(404, `Menu with URL "${publicUrl}" not found`);
+    }
+
+    const [restaurant, menuItems] = await Promise.all([
+      Restaurant.findById(qrCode.restaurantId).lean(),
+      MenuItem.find({
+        restaurantId: qrCode.restaurantId,
+        isActive: true,
+      })
+        .sort({ displayOrder: 1, createdAt: -1 })
+        .lean(),
+    ]);
+
+    if (!restaurant) {
+      throw new AppError(404, "Restaurant not found");
+    }
+
+    logger.info(
+      `Loaded public menu payload for ${publicUrl} with ${menuItems.length} items`,
+    );
+
+    return {
+      publicUrl,
+      restaurantId: qrCode.restaurantId.toString(),
+      restaurant,
+      menuItems,
+    };
   }
 
   /**

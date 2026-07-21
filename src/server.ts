@@ -325,11 +325,11 @@ app.get(
   async (req, res, next) => {
     try {
       const { publicUrl } = req.params;
-      const qrCode = await QRCodeService.getRestaurantByPublicUrl(publicUrl);
+      const payload = await QRCodeService.getPublicMenuPageData(publicUrl);
       res.status(200).json({
         success: true,
-        message: "Restaurant found",
-        data: { restaurantId: qrCode.restaurantId, qrCode },
+        message: "Public menu data loaded",
+        data: payload,
       });
     } catch (error) {
       next(error);
