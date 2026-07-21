@@ -9,6 +9,13 @@ import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { generateShortCode } from "../utils/urlGenerator";
 
+interface PublicMenuPageData {
+  publicUrl: string;
+  restaurantId: string;
+  restaurant: Record<string, unknown>;
+  menuItems: Array<Record<string, unknown>>;
+}
+
 export class QRCodeService {
   /**
    * Generate QR code for restaurant
@@ -290,7 +297,9 @@ export class QRCodeService {
   /**
    * Get a complete public menu payload in one request for the public menu page.
    */
-  static async getPublicMenuPageData(publicUrl: string) {
+  static async getPublicMenuPageData(
+    publicUrl: string,
+  ): Promise<PublicMenuPageData> {
     const qrCode = await QRCodeModel.findOne({ publicUrl }).lean();
 
     if (!qrCode) {
