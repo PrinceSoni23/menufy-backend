@@ -1,7 +1,8 @@
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { AnalyticsService } from "../src/services/analytics.service";
-import { Analytics, Restaurant } from "../src/models";
+import { QRCodeService } from "../src/services/qrcode.service";
+import { Analytics, QRCode, Restaurant } from "../src/models";
 
 // allow slower startup for in-memory mongo (10 minutes)
 jest.setTimeout(600000);
@@ -86,5 +87,47 @@ describe("Analytics integration (in-memory)", () => {
     expect(summary.scanToViewConversion).toBe(50);
     expect(summary.viewToAddConversion).toBe(100);
     expect(summary.endToEndConversion).toBe(100);
+  });
+
+  test("trackQRCodeScan creates a scan analytics event so dashboard metrics reflect real scans", async () => {
+    const restaurant = await Restaurant.create({
+      ownerId: new mongoose.Types.ObjectId(),
+      name: "scan-metrics-test",
+      address: "456 Test St",
+      city: "Testville",
+      phone: "555-0101",
+    });
+
+    const qrCode = await QRCode.create({
+      restaurantId: restaurant._id,
+      code: "scanmetrics123",
+      qrDataUrl: "data:image/png;base64,placeholder",
+      publicUrl: "scanmetrics123",
+      totalScans: 0,
+      uniqueDevices: 0,
+    });
+
+    await QRCodeService.trackQRCodeScan(
+      qrCode.code,
+      "device-abc",
+      "session-xyz",
+    );
+
+    const analyticsEvents = await Analytics.find({
+      restaurantId: restaurant._id,
+      eventType: "scan",
+    }).lean();
+
+    expect(analyticsEvents).toHaveLength(1);
+    expect(analyticsEvents[0].sessionId).toBe("session-xyz");
+    expect(analyticsEvents[0].deviceId).toBe("device-abc");
+
+    const funnel = await AnalyticsService.getEngagementFunnel(
+      restaurant._id.toString(),
+      new Date(Date.now() - 60 * 60 * 1000),
+      new Date(Date.now() + 60 * 60 * 1000),
+    );
+
+    expect(funnel.summary.totalScans).toBeGreaterThanOrEqual(1);
   });
 });

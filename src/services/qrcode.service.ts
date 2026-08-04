@@ -8,6 +8,7 @@ import {
 import { AppError } from "../middleware/errorHandler";
 import logger from "../utils/logger";
 import { generateShortCode } from "../utils/urlGenerator";
+import { AnalyticsService } from "./analytics.service";
 
 interface PublicMenuPageData {
   publicUrl: string;
@@ -227,6 +228,21 @@ export class QRCodeService {
     }
 
     await qrCode.save();
+
+    const analyticSessionId = sessionId || deviceId || `${code}-${Date.now()}`;
+    try {
+      await AnalyticsService.trackEvent(
+        String(qrCode.restaurantId),
+        "scan",
+        "Web",
+        analyticSessionId,
+        deviceId,
+      );
+    } catch (error) {
+      logger.warn(
+        `Failed to persist QR scan analytics for ${code}: ${String(error)}`,
+      );
+    }
 
     logger.info(`QR code scanned: ${code}`);
 

@@ -936,7 +936,14 @@ export class AnalyticsService {
       const menuItemsTyped = menuItems as MenuItemDoc[];
       const cartRevenueSummaryTyped = cartRevenueSummary as CartRevenueAgg[];
 
-      // Get distinct sessions that visited the page (used as denominator for Visits -> add_to_cart conversion)
+      // Get distinct sessions that scanned the QR and visited the page.
+      // Use the scan session set as the primary denominator for "scan -> checkout" conversion,
+      // because QR discovery is the real entry point for this metric.
+      const scanSessionIds = await Analytics.distinct("sessionId", {
+        restaurantId,
+        eventType: "scan",
+        timestamp: { $gte: monthStart, $lte: monthEnd },
+      });
       const visitingSessionIds = await Analytics.distinct("sessionId", {
         restaurantId,
         eventType: { $in: ["view_menu", "view"] },
@@ -1150,7 +1157,12 @@ export class AnalyticsService {
       );
 
       let conversionRate = "0";
-      if (visitingSessionIds && visitingSessionIds.length > 0) {
+      if (scanSessionIds.length > 0) {
+        conversionRate = (
+          (cartSessionIds.length / scanSessionIds.length) *
+          100
+        ).toFixed(1);
+      } else if (visitingSessionIds && visitingSessionIds.length > 0) {
         conversionRate = (
           (cartSessionIds.length / visitingSessionIds.length) *
           100
